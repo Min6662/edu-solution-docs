@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edu Solution - Official Documentation</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.7;
+      color: #2d3748;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+      padding: 3rem 2rem;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(10px);
+    }
+    
+    .header h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .header .subtitle {
+      font-size: 1.3rem;
+      color: #718096;
+      font-weight: 500;
+      margin-bottom: 2rem;
+    }
+    
+    .header .description {
+      font-size: 1.1rem;
+      color: #4a5568;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .content {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      padding: 3rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(10px);
+    }
+    
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      margin: 2rem 0;
+    }
+    
+    .link-card {
+      background: #f7fafc;
+      padding: 2.5rem;
+      border-radius: 15px;
+      border: 1px solid #e2e8f0;
+      transition: all 0.3s ease;
+      text-align: center;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .link-card:hover {
+      transform: translateY(-10px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+      background: #edf2f7;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .link-card i {
+      font-size: 4rem;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .link-card h3 {
+      font-size: 1.5rem;
+      color: #2d3748;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+    
+    .link-card p {
+      color: #4a5568;
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+    
+    .app-info {
+      background: linear-gradient(135deg, #e6fffa, #b2f5ea);
+      padding: 2rem;
+      border-radius: 15px;
+      margin: 2rem 0;
+      text-align: center;
+      border: 1px solid #81e6d9;
+    }
+    
+    .app-info h2 {
+      color: #2d3748;
+      margin-bottom: 1rem;
+      font-size: 1.8rem;
+    }
+    
+    .app-info p {
+      color: #2d3748;
+      font-size: 1.1rem;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding: 2rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 15px;
+      color: white;
+    }
+    
+    .footer a {
+      color: #b2f5ea;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+      
+      .header {
+        padding: 2rem 1.5rem;
+      }
+      
+      .header h1 {
+        font-size: 2.5rem;
+      }
+      
+      .content {
+        padding: 2rem;
+      }
+      
+      .links-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1><i class="fas fa-graduation-cap"></i> Edu Solution</h1>
+      <p class="subtitle">Official Documentation & Support</p>
+      <p class="description">
+        Welcome to Edu Solution's official documentation hub. Here you'll find our privacy policy, support information, and important legal documents for our comprehensive school management platform.
+      </p>
+    </div>
+    
+    <div class="content">
+      <div class="app-info">
+        <h2><i class="fas fa-school"></i> About Edu Solution</h2>
+        <p>A modern, comprehensive school management system designed for students, teachers, and administrators to streamline educational operations and enhance the learning experience.</p>
+      </div>
+      
+      <div class="links-grid">
+        <a href="privacy.html" class="link-card">
+          <i class="fas fa-shield-alt"></i>
+          <h3>Privacy Policy</h3>
+          <p>Learn how we protect your data and privacy. Our comprehensive privacy policy explains our data collection, usage, and security practices.</p>
+        </a>
+        
+        <a href="support.html" class="link-card">
+          <i class="fas fa-headset"></i>
+          <h3>Support Center</h3>
+          <p>Need help? Our support team is ready to assist you with any questions, technical issues, or feedback about the application.</p>
+        </a>
+      </div>
+      
+      <div style="text-align: center; margin: 3rem 0;">
+        <a href="https://t.me/stockflow_support_channel" target="_blank" style="
+          display: inline-block;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white;
+          padding: 1rem 2rem;
+          border-radius: 25px;
+          text-decoration: none;
+          font-weight: 600;
+          font-size: 1.1rem;
+          transition: all 0.3s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 10px 25px rgba(102, 126, 234, 0.3)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+          <i class="fab fa-telegram"></i> Join Our Support Channel
+        </a>
+      </div>
+    </div>
+    
+    <div class="footer">
+      <p>&copy; 2025 Edu Solution. All rights reserved.</p>
+      <p>Questions? Contact us on <a href="https://t.me/stockflow_support_channel" target="_blank">Telegram</a></p>
+    </div>
+  </div>
+</body>
+</html>
