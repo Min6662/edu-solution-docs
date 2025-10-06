@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../screens/teacher_dashboard.dart';
 import '../screens/settings_screen.dart';
 import '../screens/time_table_screen.dart';
+import '../screens/teacher_qr_scan_screen.dart';
+import '../screens/exam_result_screen.dart';
 
 class AppBottomNavigation extends StatelessWidget {
   final int currentIndex;
@@ -42,36 +43,27 @@ class AppBottomNavigation extends StatelessWidget {
           print('DEBUG: Already on home screen, no navigation needed');
         }
         break;
-      case 1: // Teachers or Schedule (based on role)
-        print('DEBUG: Second tab clicked, userRole: $userRole');
-        // Check if user has permission to access teacher management
-        if (userRole?.toLowerCase() == 'admin' ||
-            userRole?.toLowerCase() == 'owner') {
-          print('DEBUG: Admin/Owner access granted to TeacherDashboard');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const TeacherDashboard(),
-              settings: const RouteSettings(name: '/teacher'),
+      case 1: // Schedule
+        print('DEBUG: Schedule tab clicked, userRole: $userRole');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TimeTableScreen(
+              userRole: userRole ?? 'admin',
+              // Note: teacherId will be automatically found by TimeTableScreen
             ),
-          );
-        } else {
-          // For teachers and any other role, show TimeTableScreen
-          print('DEBUG: User accessing Schedule (role: $userRole)');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const TimeTableScreen(
-                userRole: 'teacher',
-                // Note: teacherId will be automatically found by TimeTableScreen
-              ),
-              settings: const RouteSettings(name: '/schedule'),
-            ),
-          );
-        }
+            settings: const RouteSettings(name: '/schedule'),
+          ),
+        );
         break;
-      case 2: // Students
-        Navigator.pushReplacementNamed(context, '/studentList');
+      case 2: // Exam Results
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const ExamResultScreen(),
+            settings: const RouteSettings(name: '/exam_results'),
+          ),
+        );
         break;
       case 3: // Settings
         Navigator.push(
@@ -85,38 +77,202 @@ class AppBottomNavigation extends StatelessWidget {
     }
   }
 
+  void _handleQRScan(BuildContext context) {
+    print('DEBUG: QR Scan button clicked');
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeacherQRScanScreen(),
+        settings: const RouteSettings(name: '/qr_scan'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Create dynamic navigation items based on user role
-    List<BottomNavigationBarItem> items = [
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.home),
-        label: 'Home',
-      ),
-      // Second tab changes based on user role
-      BottomNavigationBarItem(
-        icon: Icon(userRole?.toLowerCase() == 'teacher'
-            ? Icons.schedule
-            : Icons.people),
-        label: userRole?.toLowerCase() == 'teacher' ? 'Schedule' : 'Teachers',
-      ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.school),
-        label: 'Students',
-      ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.settings),
-        label: 'Settings',
-      ),
-    ];
-
-    return BottomNavigationBar(
-      items: items,
-      currentIndex: currentIndex,
-      onTap: (index) => _handleNavigation(context, index),
-      selectedItemColor: Colors.blue,
-      unselectedItemColor: Colors.grey,
-      type: BottomNavigationBarType.fixed,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Bottom Navigation Bar with custom spacing
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: Container(
+              height: 60,
+              child: Row(
+                children: [
+                  // Home
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _handleNavigation(context, 0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.home,
+                            color:
+                                currentIndex == 0 ? Colors.blue : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Home',
+                            style: TextStyle(
+                              color:
+                                  currentIndex == 0 ? Colors.blue : Colors.grey,
+                              fontSize: 12,
+                              fontWeight: currentIndex == 0
+                                  ? FontWeight.w500
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Schedule (with right padding)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 32.0),
+                      child: GestureDetector(
+                        onTap: () => _handleNavigation(context, 1),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              color:
+                                  currentIndex == 1 ? Colors.blue : Colors.grey,
+                              size: 24,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Schedule',
+                              style: TextStyle(
+                                color: currentIndex == 1
+                                    ? Colors.blue
+                                    : Colors.grey,
+                                fontSize: 12,
+                                fontWeight: currentIndex == 1
+                                    ? FontWeight.w500
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Exam Results (with left padding)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 32.0),
+                      child: GestureDetector(
+                        onTap: () => _handleNavigation(context, 2),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.assessment,
+                              color:
+                                  currentIndex == 2 ? Colors.blue : Colors.grey,
+                              size: 24,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Results',
+                              style: TextStyle(
+                                color: currentIndex == 2
+                                    ? Colors.blue
+                                    : Colors.grey,
+                                fontSize: 12,
+                                fontWeight: currentIndex == 2
+                                    ? FontWeight.w500
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Settings
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _handleNavigation(context, 3),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.settings,
+                            color:
+                                currentIndex == 3 ? Colors.blue : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Settings',
+                            style: TextStyle(
+                              color:
+                                  currentIndex == 3 ? Colors.blue : Colors.grey,
+                              fontSize: 12,
+                              fontWeight: currentIndex == 3
+                                  ? FontWeight.w500
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Floating QR Scan Button
+        Positioned(
+          left:
+              MediaQuery.of(context).size.width / 2 - 28, // Center horizontally
+          top: -28, // Position above the bottom nav
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Colors.blue, Colors.blueAccent],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: FloatingActionButton(
+              onPressed: () => _handleQRScan(context),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: const Icon(
+                Icons.qr_code_scanner,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

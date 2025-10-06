@@ -8,6 +8,7 @@ class TeacherCard extends StatelessWidget {
   final int yearsOfExperience;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onTap;
 
   const TeacherCard({
     super.key,
@@ -18,6 +19,7 @@ class TeacherCard extends StatelessWidget {
     this.yearsOfExperience = 0,
     this.onEdit,
     this.onDelete,
+    this.onTap,
   });
 
   @override
@@ -25,51 +27,56 @@ class TeacherCard extends StatelessWidget {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: SizedBox(
-                width: 64,
-                height: 64,
-                child: (photoUrl != null && photoUrl!.isNotEmpty)
-                    ? Image.network(photoUrl!, fit: BoxFit.cover)
-                    : Image.network(
-                        'https://randomuser.me/api/portraits/men/1.jpg',
-                        fit: BoxFit.cover),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: (photoUrl != null && photoUrl!.isNotEmpty)
+                      ? Image.network(photoUrl!, fit: BoxFit.cover)
+                      : Image.network(
+                          'https://randomuser.me/api/portraits/men/1.jpg',
+                          fit: BoxFit.cover),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('Subject: $subject',
-                      style: const TextStyle(fontSize: 12)),
-                  Text('Gender: $gender', style: const TextStyle(fontSize: 12)),
-                  Text('Experience: $yearsOfExperience years',
-                      style: const TextStyle(fontSize: 12)),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text('Subject: $subject',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('Gender: $gender',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('Experience: $yearsOfExperience years',
+                        style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
               ),
-            ),
-            if (onEdit != null)
-              IconButton(
-                icon: const Icon(Icons.edit, color: Colors.blue),
-                onPressed: onEdit,
-                tooltip: 'Edit',
-              ),
-            if (onDelete != null)
-              IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: onDelete,
-                tooltip: 'Delete',
-              ),
-          ],
+              if (onEdit != null)
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  onPressed: onEdit,
+                  tooltip: 'Edit',
+                ),
+              if (onDelete != null)
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: onDelete,
+                  tooltip: 'Delete',
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -29,8 +29,11 @@ class ScheduleChecker {
           days.add(day);
           timeSlots.add(timeSlot);
 
-          final teacherName = teacher?.get<String>('name') ?? 'Unknown Teacher';
-          final className = classObj?.get<String>('name') ??
+          final teacherName = teacher?.get<String>('fullName') ??
+              teacher?.get<String>('name') ??
+              'Unknown Teacher';
+          final className = classObj?.get<String>('classname') ??
+              classObj?.get<String>('name') ??
               classObj?.get<String>('code') ??
               'Unknown Class';
 
@@ -60,8 +63,11 @@ class ScheduleChecker {
             final teacher = s.get<ParseObject>('teacher');
             final classObj = s.get<ParseObject>('class');
             return {
-              'teacher': teacher?.get<String>('name') ?? 'Unknown',
-              'class': classObj?.get<String>('name') ??
+              'teacher': teacher?.get<String>('fullName') ??
+                  teacher?.get<String>('name') ??
+                  'Unknown',
+              'class': classObj?.get<String>('classname') ??
+                  classObj?.get<String>('name') ??
                   classObj?.get<String>('code') ??
                   'Unknown',
               'day': s.get<String>('day'),

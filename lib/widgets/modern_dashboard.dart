@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:reorderables/reorderables.dart';
 import '../widgets/app_bottom_navigation.dart';
 
-import '../screens/assigned_classes_screen.dart'; // Import the new screen
 import '../screens/time_table_screen.dart';
 import '../screens/teacher_qr_scan_screen.dart'; // Import smart QR scanner
 import '../screens/attendance_history_screen.dart'; // Import attendance history
@@ -20,10 +19,8 @@ class ModernDashboard extends StatefulWidget {
   final VoidCallback? onClassTap;
   final VoidCallback? onStudentTap;
   final VoidCallback? onExamResultTap;
-  final VoidCallback? onEnrolmentsTap;
   final VoidCallback? onQRScanTap;
   final VoidCallback? onStudentAttendanceTap;
-  final VoidCallback? onAssignedClassesTap;
   final VoidCallback? onTimetableTap;
   final String? userRole; // Add userRole parameter
   const ModernDashboard({
@@ -39,10 +36,8 @@ class ModernDashboard extends StatefulWidget {
     this.onClassTap,
     this.onStudentTap,
     this.onExamResultTap,
-    this.onEnrolmentsTap,
     this.onQRScanTap,
     this.onStudentAttendanceTap,
-    this.onAssignedClassesTap,
     this.onTimetableTap,
     this.userRole, // Add userRole to constructor
   });
@@ -87,14 +82,6 @@ class _ModernDashboardState extends State<ModernDashboard> {
         'description': 'View exam results',
         'onTap': widget.onExamResultTap ?? () {},
       },
-      // Only show Enrollments card if user is not a teacher
-      if (widget.userRole?.toLowerCase() != 'teacher')
-        {
-          'icon': Icons.how_to_reg,
-          'title': 'Enrolments',
-          'description': 'View enrolments',
-          'onTap': widget.onEnrolmentsTap ?? () {},
-        },
       {
         'icon': Icons.qr_code_scanner,
         'title': 'QR Scan',
@@ -125,31 +112,20 @@ class _ModernDashboardState extends State<ModernDashboard> {
           );
         },
       },
-      {
-        'icon': Icons.data_usage,
-        'title': 'Schedule Data',
-        'description': 'Check & Manage',
-        'onTap': () {
-          Navigator.of(context, rootNavigator: true).push(
-            MaterialPageRoute(
-              builder: (_) => const ScheduleDataManagerScreen(),
-            ),
-          );
+      // Only show Schedule card if user is not a teacher
+      if (widget.userRole?.toLowerCase() != 'teacher')
+        {
+          'icon': Icons.data_usage,
+          'title': 'Schedule',
+          'description': 'Check & Manage',
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const ScheduleDataManagerScreen(),
+              ),
+            );
+          },
         },
-      },
-      // New cards for teacher features
-      {
-        'icon': Icons.assignment_ind,
-        'title': 'Assigned',
-        'description': 'Teaching Classes',
-        'onTap': () {
-          Navigator.of(context, rootNavigator: true).push(
-            MaterialPageRoute(
-              builder: (_) => const AssignedClassesScreen(),
-            ),
-          );
-        },
-      },
       // Only show Timetable card if user is not a teacher
       if (widget.userRole?.toLowerCase() != 'teacher')
         {

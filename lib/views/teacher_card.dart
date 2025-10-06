@@ -31,9 +31,10 @@ class TeacherCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 4,
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      child: GestureDetector(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
         onTap: () {
-          print('DEBUG: TeacherCard GestureDetector onTap called');
+          print('DEBUG: TeacherCard InkWell onTap called');
           if (onTap != null) {
             print('DEBUG: Calling onTap callback');
             onTap!();

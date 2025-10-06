@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import '../models/teacher.dart';
 import '../views/teacher_card.dart' as views;
 import 'teacher_registration_screen.dart';
 import '../services/class_service.dart';
 import '../services/cache_service.dart';
-import '../widgets/app_bottom_navigation.dart';
 import 'package:hive/hive.dart';
 import 'dart:typed_data';
 import 'teacher_detail_screen.dart'; // Add import for navigation
@@ -24,28 +22,12 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   bool loading = false;
   String searchQuery = '';
   String error = '';
-  String? userRole; // Add userRole field
   Map<String, Uint8List> teacherImages = {}; // Add teacherImages map
 
   @override
   void initState() {
     super.initState();
-    _fetchUserRole(); // Fetch user role
     _loadTeachers(); // Fixed method name
-  }
-
-  Future<void> _fetchUserRole() async {
-    try {
-      final user = await ParseUser.currentUser();
-      final role = user?.get<String>('role');
-      if (mounted) {
-        setState(() {
-          userRole = role;
-        });
-      }
-    } catch (e) {
-      print('Error fetching user role: $e');
-    }
   }
 
   Future<void> _loadTeachers({bool forceRefresh = false}) async {
@@ -111,7 +93,10 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
-        automaticallyImplyLeading: false, // Remove back button
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Teachers', style: TextStyle(color: Colors.black)),
         centerTitle: true,
         actions: [
@@ -178,11 +163,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         backgroundColor: Colors.blue,
         tooltip: 'Add Teacher',
         child: const Icon(Icons.add, color: Colors.white),
-      ),
-      bottomNavigationBar: AppBottomNavigation(
-        currentIndex: 1, // Teachers tab
-        userRole: userRole, // Pass userRole for proper access control
-        // Remove onTabChanged to let AppBottomNavigation handle all navigation
       ),
     );
   }

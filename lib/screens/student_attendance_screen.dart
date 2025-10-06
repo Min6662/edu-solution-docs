@@ -19,6 +19,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   List<Map<String, dynamic>> students = [];
   bool loadingClasses = true;
   bool loadingStudents = false;
+  Map<String, int> monthlyAbsentCounts =
+      {}; // Store monthly absent counts for each student
+  bool isAttendanceSubmitted =
+      false; // Track if attendance for current date/session is already submitted
 
   final statusColors = {
     'present': Colors.green,
@@ -143,6 +147,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         loadingStudents = false;
       });
       await box.put(classId, studentList);
+
+      // Load existing attendance for the current date and session
+      await _loadExistingAttendance();
+
+      // Load monthly absent counts for each student
+      await _loadMonthlyAbsentCounts();
     } else {
       setState(() {
         students = [];
@@ -151,66 +161,376 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     }
   }
 
-  Future<void> _submitAttendance() async {
-    final classObj = classes.firstWhere((c) => c.objectId == selectedClassId,
-        orElse: () => ParseObject('Class'));
-    final className = classObj.get<String>('classname') ?? '';
-    int duplicateCount = 0;
-    // Normalize date to midnight local, then convert to UTC
-    final normalizedDateLocal =
-        DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
-    final normalizedDateUtc = DateTime.utc(
-      normalizedDateLocal.year,
-      normalizedDateLocal.month,
-      normalizedDateLocal.day,
-    );
-    for (var student in students) {
-      if (student['status'] != 'absent') continue; // Only store absents
-      // Check for existing attendance for this student/class/date/session
+  Future<void> _loadMonthlyAbsentCounts() async {
+    try {
+      for (var student in students) {
+        final studentId = student['id'] as String;
+        if (studentId.isNotEmpty) {
+          final count = await _getStudentMonthlyAbsentCount(studentId);
+          monthlyAbsentCounts[studentId] = count;
+        }
+      }
+      setState(() {}); // Refresh UI with new counts
+    } catch (e) {
+      print('Error loading monthly absent counts: $e');
+    }
+  }
+
+  Future<bool> _checkIfAttendanceAlreadySubmitted() async {
+    if (selectedClassId == null || students.isEmpty) return false;
+
+    try {
+      final normalizedDateLocal =
+          DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+      final normalizedDateUtc = DateTime.utc(
+        normalizedDateLocal.year,
+        normalizedDateLocal.month,
+        normalizedDateLocal.day,
+      );
+
       final query = QueryBuilder<ParseObject>(ParseObject('Attendance'))
-        ..whereEqualTo(
-            'student', ParseObject('Student')..objectId = student['id'])
         ..whereEqualTo(
             'class', ParseObject('Class')..objectId = selectedClassId)
         ..whereEqualTo('date', normalizedDateUtc)
         ..whereEqualTo('session', selectedSession);
+
       final response = await query.query();
-      if (response.success &&
-          response.results != null &&
-          response.results!.isNotEmpty) {
-        duplicateCount++;
-        continue; // Skip duplicate
+
+      if (response.success && response.results != null) {
+        // If we have attendance records for all students, consider it submitted
+        return response.results!.length >= students.length;
       }
-      final attendance = ParseObject('Attendance')
-        ..set('student', ParseObject('Student')..objectId = student['id'])
-        ..set('class', ParseObject('Class')..objectId = selectedClassId)
-        ..set('studentName', student['name'])
-        ..set('classname', className)
-        ..set(
-            'classId',
-            ParseObject('Class')
-              ..objectId = selectedClassId) // <-- save as Pointer
-        ..set('date', normalizedDateUtc)
-        ..set('session', selectedSession)
-        ..set('status', student['status']);
-      await attendance.save();
+      return false;
+    } catch (e) {
+      print('Error checking attendance submission status: $e');
+      return false;
     }
-    String message = duplicateCount == 0
-        ? 'Attendance submitted!'
-        : 'Attendance submitted! ($duplicateCount duplicate(s) skipped)';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+  }
+
+  Future<void> _loadExistingAttendance() async {
+    if (selectedClassId == null || students.isEmpty) return;
+
+    try {
+      // Normalize date to midnight local, then convert to UTC
+      final normalizedDateLocal =
+          DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+      final normalizedDateUtc = DateTime.utc(
+        normalizedDateLocal.year,
+        normalizedDateLocal.month,
+        normalizedDateLocal.day,
+      );
+
+      final query = QueryBuilder<ParseObject>(ParseObject('Attendance'))
+        ..whereEqualTo(
+            'class', ParseObject('Class')..objectId = selectedClassId)
+        ..whereEqualTo('date', normalizedDateUtc)
+        ..whereEqualTo('session', selectedSession);
+
+      final response = await query.query();
+
+      if (response.success && response.results != null) {
+        print('Found ${response.results!.length} existing attendance records');
+
+        // First reset all students to 'present' (default)
+        for (int i = 0; i < students.length; i++) {
+          students[i]['status'] = 'present';
+        }
+
+        // Update student statuses based on existing attendance records
+        for (var attendanceRecord in response.results!) {
+          final studentId =
+              attendanceRecord.get<ParseObject>('student')?.objectId;
+          final status = attendanceRecord.get<String>('status') ?? 'present';
+          final studentName = attendanceRecord.get<String>('studentName') ?? '';
+
+          print('Loading attendance: $studentName ($studentId) - $status');
+
+          // Find the student in our current list and update their status
+          for (int i = 0; i < students.length; i++) {
+            if (students[i]['id'] == studentId) {
+              print(
+                  'Updating student ${students[i]['name']} to status: $status');
+              students[i]['status'] = status;
+              break;
+            }
+          }
+        }
+
+        // Check if attendance is already fully submitted
+        isAttendanceSubmitted = response.results!.length >= students.length;
+        print(
+            'Attendance submission status: $isAttendanceSubmitted (${response.results!.length}/${students.length} records)');
+
+        // Force UI update
+        setState(() {});
+      } else {
+        print('No existing attendance records found or query failed');
+        // Set all students to default 'present' status
+        for (int i = 0; i < students.length; i++) {
+          students[i]['status'] = 'present';
+        }
+        setState(() {});
+      }
+    } catch (e) {
+      print('Error loading existing attendance: $e');
+    }
+  }
+
+  Future<void> _submitAttendance() async {
+    if (selectedClassId == null || students.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a class and ensure students are loaded'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Check if attendance for this date/session has already been submitted
+    if (isAttendanceSubmitted) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Attendance Already Submitted'),
+            content: Text(
+                'Attendance for ${selectedDate.day}/${selectedDate.month}/${selectedDate.year} (${selectedSession}) has already been submitted.\n\nDo you want to update the existing records?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _proceedWithSubmission(); // Proceed with update
+                },
+                child: const Text('Update'),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
+    _proceedWithSubmission();
+  }
+
+  Future<void> _proceedWithSubmission() async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Text('Saving attendance...'),
+            ],
+          ),
+        );
+      },
     );
+
+    try {
+      final classObj = classes.firstWhere((c) => c.objectId == selectedClassId,
+          orElse: () => ParseObject('Class'));
+      final className = classObj.get<String>('classname') ?? '';
+
+      int savedCount = 0;
+      int updatedCount = 0;
+      int errorCount = 0;
+
+      // Normalize date to midnight local, then convert to UTC
+      final normalizedDateLocal =
+          DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+      final normalizedDateUtc = DateTime.utc(
+        normalizedDateLocal.year,
+        normalizedDateLocal.month,
+        normalizedDateLocal.day,
+      );
+
+      for (var student in students) {
+        try {
+          print(
+              'Processing student: ${student['name']} with status: ${student['status']}');
+
+          // Validate student data
+          if (student['id'] == null || student['id'].isEmpty) {
+            errorCount++;
+            print('Error: Student ${student['name']} has no valid ID');
+            continue;
+          }
+
+          // Check for existing attendance for this student/class/date/session
+          final query = QueryBuilder<ParseObject>(ParseObject('Attendance'))
+            ..whereEqualTo(
+                'student', ParseObject('Student')..objectId = student['id'])
+            ..whereEqualTo(
+                'class', ParseObject('Class')..objectId = selectedClassId)
+            ..whereEqualTo('date', normalizedDateUtc)
+            ..whereEqualTo('session', selectedSession);
+
+          final response = await query.query();
+
+          if (!response.success) {
+            errorCount++;
+            print(
+                'Error querying existing attendance for ${student['name']}: ${response.error}');
+            continue;
+          }
+
+          ParseObject attendance;
+          bool isUpdate = false;
+
+          if (response.results != null && response.results!.isNotEmpty) {
+            // Update existing record
+            attendance = response.results!.first;
+            isUpdate = true;
+            print('Updating existing attendance for ${student['name']}');
+          } else {
+            // Create new record
+            attendance = ParseObject('Attendance');
+            print('Creating new attendance record for ${student['name']}');
+          }
+
+          // Set/update the attendance data
+          attendance.set(
+              'student', ParseObject('Student')..objectId = student['id']);
+          attendance.set(
+              'class', ParseObject('Class')..objectId = selectedClassId);
+          attendance.set('studentName', student['name']);
+          attendance.set('classname', className);
+          attendance.set('date', normalizedDateUtc);
+          attendance.set('session', selectedSession);
+          attendance.set('status', student['status']);
+
+          // Get the current user properly
+          final currentUser = await ParseUser.currentUser();
+          if (currentUser != null) {
+            attendance.set('takenBy', currentUser);
+          }
+
+          attendance.set('updatedAt', DateTime.now());
+
+          final saveResponse = await attendance.save();
+
+          if (saveResponse.success) {
+            if (isUpdate) {
+              updatedCount++;
+              print('Successfully updated attendance for ${student['name']}');
+            } else {
+              savedCount++;
+              print('Successfully created attendance for ${student['name']}');
+            }
+          } else {
+            errorCount++;
+            print(
+                'Error saving attendance for ${student['name']}: ${saveResponse.error?.message ?? 'Unknown error'}');
+            print('Error code: ${saveResponse.error?.code}');
+            print('Error details: ${saveResponse.error}');
+          }
+        } catch (e, stackTrace) {
+          errorCount++;
+          print('Exception saving attendance for ${student['name']}: $e');
+          print('Stack trace: $stackTrace');
+        }
+      }
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Show success message with details
+      String message;
+      Color backgroundColor;
+
+      if (errorCount == 0) {
+        message = 'Attendance saved successfully!\n';
+        if (savedCount > 0) message += '$savedCount new records created. ';
+        if (updatedCount > 0) message += '$updatedCount records updated.';
+        backgroundColor = Colors.green;
+      } else {
+        message = 'Attendance saved with some errors.\n';
+        if (savedCount > 0) message += '$savedCount saved, ';
+        if (updatedCount > 0) message += '$updatedCount updated, ';
+        message += '$errorCount errors.\nCheck console for details.';
+        backgroundColor = Colors.orange;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: backgroundColor,
+          duration: const Duration(seconds: 4),
+          action: errorCount > 0
+              ? SnackBarAction(
+                  label: 'Details',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Error Details'),
+                        content: Text(
+                            'There were $errorCount errors while saving attendance.\n\n'
+                            'This could be due to:\n'
+                            '• Network connectivity issues\n'
+                            '• Missing student data\n'
+                            '• Database permission issues\n'
+                            '• Invalid student IDs\n\n'
+                            'Check the console logs for detailed error messages.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                )
+              : null,
+        ),
+      );
+
+      // Set submission flag if no errors occurred
+      if (errorCount == 0) {
+        setState(() {
+          isAttendanceSubmitted = true;
+        });
+      }
+
+      // Reload existing attendance to show what was actually saved
+      await _loadExistingAttendance();
+    } catch (e) {
+      // Close loading dialog if still open
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving attendance: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      print('Error in _submitAttendance: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mark Student Attendance'),
+        title: const Text('Attendance'),
+        backgroundColor: Colors.pink,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.blue),
+            icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Refresh Student List',
             onPressed: selectedClassId == null
                 ? null
@@ -221,11 +541,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                   },
           ),
           IconButton(
-            icon: const Icon(Icons.history),
+            icon: const Icon(Icons.history, color: Colors.white),
             tooltip: 'View History',
             onPressed: () {
-              print('View History pressed, classId: ' +
-                  (selectedClassId ?? 'null'));
               try {
                 Navigator.push(
                   context,
@@ -242,125 +560,654 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
               }
             },
           ),
+          if (selectedClassId != null && students.isNotEmpty)
+            IconButton(
+              onPressed: _submitAttendance,
+              icon: const Icon(Icons.save, color: Colors.white),
+              tooltip: 'Save Attendance',
+            ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFE91E63), Color(0xFFF8BBD9)],
+          ),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Select Class:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            loadingClasses
-                ? const Center(child: CircularProgressIndicator())
-                : DropdownButton<String>(
-                    value: selectedClassId,
-                    hint: const Text('Choose class'),
-                    items: classes
-                        .map((c) => DropdownMenuItem(
-                              value: c.objectId,
-                              child: Text(c.get<String>('classname') ?? ''),
-                            ))
-                        .toList(),
-                    onChanged: (val) {
-                      setState(() {
-                        selectedClassId = val;
-                      });
-                      if (val != null) _loadStudentsInstant(val);
-                    },
-                  ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Date:',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(width: 12),
-                Text(
-                  '${selectedDate.toLocal()}'.split(' ')[0],
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Session:',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(width: 12),
-                DropdownButton<String>(
-                  value: selectedSession,
-                  items: ['Morning', 'Afternoon']
-                      .map((s) => DropdownMenuItem(
-                            value: s,
-                            child: Text(s),
-                          ))
-                      .toList(),
-                  onChanged: (val) {
-                    setState(() {
-                      selectedSession = val!;
-                    });
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Text('Students:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            loadingStudents
-                ? const Center(child: CircularProgressIndicator())
-                : Expanded(
-                    child: students.isEmpty
-                        ? const Center(child: Text('No students found.'))
-                        : ListView.builder(
-                            itemCount: students.length,
-                            itemBuilder: (context, i) {
-                              final student = students[i];
-                              return Card(
-                                child: ListTile(
-                                  title: Text(student['name']),
-                                  trailing: DropdownButton<String>(
-                                    value: student['status'],
-                                    items: [
-                                      'present',
-                                      'absent',
-                                      'late',
-                                      'excuse'
-                                    ]
-                                        .map((s) => DropdownMenuItem(
-                                              value: s,
-                                              child: Row(
-                                                children: [
-                                                  Icon(Icons.circle,
-                                                      color: statusColors[s],
-                                                      size: 16),
-                                                  const SizedBox(width: 6),
-                                                  Text(s[0].toUpperCase() +
-                                                      s.substring(1)),
-                                                ],
-                                              ),
-                                            ))
-                                        .toList(),
+            // Header Controls Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      // Class Dropdown
+                      Row(
+                        children: [
+                          const Text(
+                            'Class: ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: loadingClasses
+                                ? const CircularProgressIndicator()
+                                : DropdownButton<String>(
+                                    value: selectedClassId,
+                                    hint: const Text('Select Class'),
+                                    isExpanded: true,
+                                    items: classes.map((c) {
+                                      return DropdownMenuItem<String>(
+                                        value: c.objectId,
+                                        child: Text(
+                                            c.get<String>('classname') ??
+                                                'Unknown Class'),
+                                      );
+                                    }).toList(),
                                     onChanged: (val) {
-                                      setState(
-                                          () => students[i]['status'] = val);
+                                      setState(() {
+                                        selectedClassId = val;
+                                        isAttendanceSubmitted =
+                                            false; // Reset submission flag when class changes
+                                      });
+                                      if (val != null)
+                                        _loadStudentsInstant(val);
                                     },
                                   ),
-                                ),
-                              );
-                            },
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Date Picker
+                      Row(
+                        children: [
+                          const Text(
+                            'Date: ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () async {
+                                final DateTime? picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime.now()
+                                      .add(const Duration(days: 365)),
+                                );
+                                if (picked != null && picked != selectedDate) {
+                                  setState(() {
+                                    selectedDate = picked;
+                                    isAttendanceSubmitted =
+                                        false; // Reset submission flag when date changes
+                                  });
+                                  // Load existing attendance for the new date
+                                  await _loadExistingAttendance();
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                                      style: const TextStyle(fontSize: 16),
+                                    ),
+                                    const Icon(Icons.calendar_today),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Session Dropdown
+                      Row(
+                        children: [
+                          const Text(
+                            'Session: ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: DropdownButton<String>(
+                              value: selectedSession,
+                              isExpanded: true,
+                              items: ['Morning', 'Afternoon']
+                                  .map((s) => DropdownMenuItem(
+                                        value: s,
+                                        child: Text(s),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) async {
+                                setState(() {
+                                  selectedSession = val!;
+                                  isAttendanceSubmitted =
+                                      false; // Reset submission flag when session changes
+                                });
+                                // Load existing attendance for the new session
+                                await _loadExistingAttendance();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: students.isEmpty || selectedClassId == null
-                    ? null
-                    : _submitAttendance,
-                child: const Text('Submit Attendance'),
+                ),
               ),
             ),
+
+            // Legend
+            if (selectedClassId != null && students.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'P',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('Present'),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'A',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('Absent'),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.orange,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'L',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('Late'),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.blue,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'E',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('Excuse'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Students Grade Book Style Table
+            Expanded(
+              child: loadingStudents
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : selectedClassId == null
+                      ? const Center(
+                          child: Text(
+                            'Please select a class to view students',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
+                          ),
+                        )
+                      : students.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No students found in this class',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            )
+                          : Container(
+                              margin: const EdgeInsets.all(16),
+                              child: Card(
+                                child: Column(
+                                  children: [
+                                    // Table Header with proper grid style
+                                    Container(
+                                      decoration: const BoxDecoration(
+                                        color: Colors.grey,
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: Radius.circular(8),
+                                          topRight: Radius.circular(8),
+                                        ),
+                                      ),
+                                      child: Table(
+                                        border: TableBorder.all(
+                                          color: Colors.grey.shade400,
+                                          width: 1,
+                                        ),
+                                        columnWidths: const {
+                                          0: FixedColumnWidth(50),
+                                          1: FlexColumnWidth(3),
+                                          2: FixedColumnWidth(50),
+                                          3: FixedColumnWidth(50),
+                                          4: FixedColumnWidth(100),
+                                        },
+                                        children: [
+                                          TableRow(
+                                            decoration: const BoxDecoration(
+                                              color: Colors.grey,
+                                            ),
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: const Text(
+                                                  'No.',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: const Text(
+                                                  'Student Name',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: const Text(
+                                                  'P',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: const Text(
+                                                  'A',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: const Text(
+                                                  'Total Absent',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    // Students Table Body
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        child: Table(
+                                          border: TableBorder.all(
+                                            color: Colors.grey.shade300,
+                                            width: 1,
+                                          ),
+                                          columnWidths: const {
+                                            0: FixedColumnWidth(50),
+                                            1: FlexColumnWidth(3),
+                                            2: FixedColumnWidth(50),
+                                            3: FixedColumnWidth(50),
+                                            4: FixedColumnWidth(100),
+                                          },
+                                          children: students
+                                              .asMap()
+                                              .entries
+                                              .map((entry) {
+                                            final index = entry.key;
+                                            final student = entry.value;
+
+                                            return TableRow(
+                                              decoration: BoxDecoration(
+                                                color: index % 2 == 0
+                                                    ? Colors.grey
+                                                        .withOpacity(0.1)
+                                                    : Colors.white,
+                                              ),
+                                              children: [
+                                                // Number
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(8),
+                                                  child: Text(
+                                                    '${index + 1}.',
+                                                    textAlign: TextAlign.center,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                                // Student Name
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(8),
+                                                  child: Text(
+                                                    student['name'],
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.w400,
+                                                    ),
+                                                  ),
+                                                ),
+                                                // Present Button
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(4),
+                                                  child:
+                                                      _buildTableAttendanceButton(
+                                                          index,
+                                                          'present',
+                                                          'P',
+                                                          Colors.green),
+                                                ),
+                                                // Absent Button
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(4),
+                                                  child:
+                                                      _buildTableAttendanceButton(
+                                                          index,
+                                                          'absent',
+                                                          'A',
+                                                          Colors.red),
+                                                ),
+                                                // Total Absent Count (show for each student)
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.all(8),
+                                                  child: Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                        vertical: 4,
+                                                        horizontal: 8),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.red
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              4),
+                                                      border: Border.all(
+                                                          color: Colors.red
+                                                              .withOpacity(
+                                                                  0.3)),
+                                                    ),
+                                                    child: Text(
+                                                      '${monthlyAbsentCounts[students[index]['id']] ?? 0}',
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors.red,
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttendanceButton(
+      int studentIndex, String status, String label, Color color) {
+    final isSelected = students[studentIndex]['status'] == status;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          students[studentIndex]['status'] = status;
+        });
+      },
+      child: Container(
+        width: 35,
+        height: 35,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: isSelected ? color : color.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected ? Colors.transparent : color.withOpacity(0.5),
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : color,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _getTotalAbsentCount() {
+    return students.where((student) => student['status'] == 'absent').length;
+  }
+
+  Future<int> _getStudentMonthlyAbsentCount(String studentId) async {
+    try {
+      // Get the first and last day of the current month
+      final firstDayOfMonth =
+          DateTime(selectedDate.year, selectedDate.month, 1);
+      final lastDayOfMonth =
+          DateTime(selectedDate.year, selectedDate.month + 1, 0);
+
+      // Convert dates to UTC for consistent querying
+      final firstDayUtc = DateTime.utc(
+        firstDayOfMonth.year,
+        firstDayOfMonth.month,
+        firstDayOfMonth.day,
+      );
+      final lastDayUtc = DateTime.utc(
+        lastDayOfMonth.year,
+        lastDayOfMonth.month,
+        lastDayOfMonth.day,
+        23,
+        59,
+        59,
+      );
+
+      final query = QueryBuilder<ParseObject>(ParseObject('Attendance'))
+        ..whereEqualTo('student', ParseObject('Student')..objectId = studentId)
+        ..whereEqualTo('status', 'absent')
+        ..whereGreaterThan(
+            'date', firstDayUtc.subtract(const Duration(milliseconds: 1)))
+        ..whereLessThan(
+            'date', lastDayUtc.add(const Duration(milliseconds: 1)));
+
+      print(
+          'Querying monthly absent count for student: $studentId from $firstDayUtc to $lastDayUtc');
+      final response = await query.query();
+
+      if (response.success && response.results != null) {
+        print(
+            'Found ${response.results!.length} absent records for student: $studentId');
+        return response.results!.length;
+      } else {
+        print(
+            'Error fetching monthly absent count: ${response.error?.message ?? 'No results found'}');
+        return 0;
+      }
+    } catch (e) {
+      print('Exception in _getStudentMonthlyAbsentCount: $e');
+      return 0;
+    }
+  }
+
+  Widget _buildTableAttendanceButton(
+      int studentIndex, String status, String label, Color color) {
+    final isSelected = students[studentIndex]['status'] == status;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          students[studentIndex]['status'] = status;
+        });
+      },
+      child: Container(
+        width: double.infinity,
+        height: 30,
+        decoration: BoxDecoration(
+          color: isSelected ? color : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : color,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
         ),
       ),
     );

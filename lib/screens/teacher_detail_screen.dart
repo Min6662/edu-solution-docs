@@ -22,10 +22,109 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
   String? _teacherPassword;
   bool _hasUserAccount = false;
 
+  // Editable fields
+  bool _isEditingBasicInfo = false;
+  late TextEditingController _nameController;
+  late TextEditingController _subjectController;
+  late TextEditingController _addressController;
+  late TextEditingController _experienceController;
+  late TextEditingController _hourlyPayController;
+  String _selectedGender = 'Male';
+
+  // Current displayed values (for live updates) - with defaults to handle null values
+  late String _currentName;
+  late String _currentGender;
+  late String _currentSubject;
+  late String _currentAddress;
+  late String _currentExperience;
+  late String _currentHourlyPay;
+
+  // Track if values have been locally modified
+  bool _hasLocalChanges = false;
+
+  // Static cache to persist data across widget rebuilds
+  static Map<String, Map<String, String>> _teacherDataCache = {};
   @override
   void initState() {
     super.initState();
     _loadTeacherCredentials();
+
+    print('DEBUG: initState called with address: "${widget.teacher.address}"');
+
+    // Check if we have cached data for this teacher
+    final teacherId = widget.teacher.objectId;
+    final cachedData = _teacherDataCache[teacherId];
+
+    if (cachedData != null) {
+      print('DEBUG: Found cached data for teacher $teacherId');
+      // Use cached data (locally modified data)
+      _currentName = cachedData['name'] ?? widget.teacher.fullName;
+      _currentGender = cachedData['gender'] ?? widget.teacher.gender;
+      _currentSubject = cachedData['subject'] ?? widget.teacher.subject;
+      _currentAddress = cachedData['address'] ?? widget.teacher.address ?? '';
+      _currentExperience = cachedData['experience'] ??
+          widget.teacher.yearsOfExperience.toString();
+      _currentHourlyPay =
+          cachedData['hourlyPay'] ?? widget.teacher.hourlyRate.toString();
+      _hasLocalChanges = true;
+      print('DEBUG: Using cached address: "$_currentAddress"');
+    } else {
+      print('DEBUG: No cached data, using original teacher data');
+      // Initialize with original teacher data
+      _currentName = widget.teacher.fullName;
+      _currentGender = widget.teacher.gender;
+      _currentSubject = widget.teacher.subject;
+      _currentAddress = widget.teacher.address ?? '';
+      _currentExperience = widget.teacher.yearsOfExperience.toString();
+      _currentHourlyPay = widget.teacher.hourlyRate.toString();
+      _hasLocalChanges = false;
+    }
+
+    _nameController = TextEditingController(text: _currentName);
+    _subjectController = TextEditingController(text: _currentSubject);
+    _addressController = TextEditingController(text: _currentAddress);
+    _experienceController = TextEditingController(text: _currentExperience);
+    _hourlyPayController = TextEditingController(text: _currentHourlyPay);
+    _selectedGender = _currentGender;
+
+    print('DEBUG: _currentAddress initialized to: "$_currentAddress"');
+  }
+
+  @override
+  void didUpdateWidget(TeacherDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    print('DEBUG: didUpdateWidget called');
+    print('DEBUG: Old widget address: "${oldWidget.teacher.address}"');
+    print('DEBUG: New widget address: "${widget.teacher.address}"');
+    print('DEBUG: Current _currentAddress: "$_currentAddress"');
+
+    // Don't reset if we have local changes that haven't been reflected in widget.teacher
+    if (widget.teacher.address != oldWidget.teacher.address &&
+        !_hasLocalChanges) {
+      print('DEBUG: Widget teacher address changed, updating current values');
+      _currentName = widget.teacher.fullName;
+      _currentGender = widget.teacher.gender;
+      _currentSubject = widget.teacher.subject;
+      _currentAddress = widget.teacher.address ?? '';
+
+      // Update controllers if not currently editing
+      if (!_isEditingBasicInfo) {
+        _nameController.text = _currentName;
+        _subjectController.text = _currentSubject;
+        _addressController.text = _currentAddress;
+        _selectedGender = _currentGender;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _subjectController.dispose();
+    _addressController.dispose();
+    _experienceController.dispose();
+    _hourlyPayController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadTeacherCredentials() async {
@@ -141,7 +240,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          widget.teacher.fullName,
+                          _currentName,
                           style: Theme.of(context)
                               .textTheme
                               .headlineSmall
@@ -160,9 +259,9 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                             border: Border.all(color: Colors.blue[200]!),
                           ),
                           child: Text(
-                            widget.teacher.subject.isEmpty
+                            _currentSubject.isEmpty
                                 ? 'Teacher'
-                                : '${widget.teacher.subject} Teacher',
+                                : '$_currentSubject Teacher',
                             style: TextStyle(
                               color: Colors.blue[700],
                               fontSize: 12,
@@ -198,20 +297,121 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Basic Information',
-                            style: Theme.of(context).textTheme.headlineSmall,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Basic Information',
+                                style:
+                                    Theme.of(context).textTheme.headlineSmall,
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  _isEditingBasicInfo
+                                      ? Icons.close
+                                      : Icons.edit,
+                                  color: _isEditingBasicInfo
+                                      ? Colors.red
+                                      : Colors.blue,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    if (_isEditingBasicInfo) {
+                                      // Cancel editing - reset values
+                                      _nameController.text = _currentName;
+                                      _subjectController.text = _currentSubject;
+                                      _addressController.text = _currentAddress;
+                                      _experienceController.text =
+                                          _currentExperience;
+                                      _hourlyPayController.text =
+                                          _currentHourlyPay;
+                                      _selectedGender = _currentGender;
+                                    }
+                                    _isEditingBasicInfo = !_isEditingBasicInfo;
+                                  });
+                                },
+                                tooltip:
+                                    _isEditingBasicInfo ? 'Cancel' : 'Edit',
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
-                          _buildDetailRow('Full Name', widget.teacher.fullName),
-                          _buildDetailRow('Gender', widget.teacher.gender),
-                          _buildDetailRow(
-                              'Subject',
-                              widget.teacher.subject.isEmpty
-                                  ? 'Not specified'
-                                  : widget.teacher.subject),
-                          _buildDetailRow('Address',
-                              widget.teacher.address ?? 'Not specified'),
+                          if (_isEditingBasicInfo) ...[
+                            // Editable mode
+                            _buildEditableField(
+                                'Full Name', _nameController, Icons.person),
+                            const SizedBox(height: 16),
+                            _buildGenderDropdown(),
+                            const SizedBox(height: 16),
+                            _buildEditableField(
+                                'Subject', _subjectController, Icons.book),
+                            const SizedBox(height: 16),
+                            _buildEditableField('Address', _addressController,
+                                Icons.location_on),
+                            const SizedBox(height: 16),
+                            _buildEditableField('Years of Experience',
+                                _experienceController, Icons.work),
+                            const SizedBox(height: 16),
+                            _buildEditableField('Hourly Pay (\$)',
+                                _hourlyPayController, Icons.attach_money),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: _saveBasicInformation,
+                                    icon: const Icon(Icons.save),
+                                    label: const Text('Save Changes'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else ...[
+                            // Read-only mode
+                            Builder(
+                              builder: (context) {
+                                print('DEBUG: Building read-only view with:');
+                                print('DEBUG: _currentName: $_currentName');
+                                print('DEBUG: _currentGender: $_currentGender');
+                                print(
+                                    'DEBUG: _currentSubject: $_currentSubject');
+                                print(
+                                    'DEBUG: _currentAddress: "$_currentAddress"');
+                                print(
+                                    'DEBUG: _currentAddress.isEmpty: ${_currentAddress.isEmpty}');
+                                return Column(
+                                  children: [
+                                    _buildDetailRow('Full Name', _currentName),
+                                    _buildDetailRow('Gender', _currentGender),
+                                    _buildDetailRow(
+                                        'Subject',
+                                        _currentSubject.isEmpty
+                                            ? 'Not specified'
+                                            : _currentSubject),
+                                    _buildDetailRow(
+                                        'Address',
+                                        _currentAddress.isEmpty
+                                            ? 'Not specified'
+                                            : _currentAddress),
+                                    _buildDetailRow(
+                                        'Years of Experience',
+                                        _currentExperience.isEmpty
+                                            ? '0'
+                                            : '$_currentExperience years'),
+                                    _buildDetailRow(
+                                        'Hourly Pay',
+                                        _currentHourlyPay.isEmpty
+                                            ? 'Not specified'
+                                            : '\$${_currentHourlyPay}/hr'),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -468,6 +668,206 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
     );
   }
 
+  Widget _buildEditableField(
+      String label, TextEditingController controller, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(icon, color: Colors.blue),
+            hintText: 'Enter $label',
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenderDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Gender',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _selectedGender,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.person_outline, color: Colors.blue),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          ),
+          items: ['Male', 'Female', 'Other'].map((String value) {
+            return DropdownMenuItem<String>(
+              value: value,
+              child: Text(value),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            setState(() {
+              _selectedGender = newValue!;
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _saveBasicInformation() async {
+    // Show loading dialog
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Saving changes...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    try {
+      // Validate required fields
+      if (_nameController.text.trim().isEmpty) {
+        throw Exception('Full name is required');
+      }
+
+      print('DEBUG: Starting to save teacher information...');
+      print('DEBUG: Teacher ID: ${widget.teacher.objectId}');
+      print('DEBUG: New Name: ${_nameController.text.trim()}');
+      print('DEBUG: New Gender: $_selectedGender');
+      print('DEBUG: New Subject: ${_subjectController.text.trim()}');
+      print('DEBUG: New Address: ${_addressController.text.trim()}');
+
+      // Update via HTTP API
+      const appId = 'EIbuzFd5v46RVy8iqf3vupM40l4PEcuS773XLUc5';
+      const clientKey = 'o35E0eNihkhwtlOtwBoIASmO2htYsbAeL1BpnUdE';
+
+      final headers = {
+        'X-Parse-Application-Id': appId,
+        'X-Parse-Client-Key': clientKey,
+        'Content-Type': 'application/json',
+      };
+
+      final requestBody = jsonEncode({
+        'fullName': _nameController.text.trim(),
+        'gender': _selectedGender,
+        'subject': _subjectController.text.trim(),
+        'address': _addressController.text.trim().isEmpty
+            ? null
+            : _addressController.text.trim(),
+        'yearsOfExperience':
+            int.tryParse(_experienceController.text.trim()) ?? 0,
+        'hourlyRate': double.tryParse(_hourlyPayController.text.trim()) ?? 0.0,
+        'lastModified': {
+          '__type': 'Date',
+          'iso': DateTime.now().toIso8601String(),
+        },
+      });
+
+      print('DEBUG: Request body: $requestBody');
+
+      final response = await http.put(
+        Uri.parse(
+            'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+        headers: headers,
+        body: requestBody,
+      );
+
+      print('DEBUG: Response status: ${response.statusCode}');
+      print('DEBUG: Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        print('DEBUG: ✅ Teacher information updated successfully');
+
+        // Update local current values for display and cache them
+        final teacherId = widget.teacher.objectId;
+        setState(() {
+          _currentName = _nameController.text.trim();
+          _currentGender = _selectedGender;
+          _currentSubject = _subjectController.text.trim();
+          _currentAddress = _addressController.text.trim();
+          _currentExperience = _experienceController.text.trim();
+          _currentHourlyPay = _hourlyPayController.text.trim();
+          _isEditingBasicInfo = false;
+          _hasLocalChanges = true; // Mark that we have local changes
+
+          // Cache the updated data to persist across widget rebuilds
+          _teacherDataCache[teacherId] = {
+            'name': _currentName,
+            'gender': _currentGender,
+            'subject': _currentSubject,
+            'address': _currentAddress,
+            'experience': _currentExperience,
+            'hourlyPay': _currentHourlyPay,
+          };
+
+          print('DEBUG: Cached data for teacher $teacherId');
+          print('DEBUG: Cached address: "$_currentAddress"');
+        });
+
+        print('DEBUG: Local state updated with new values');
+        print('DEBUG: _currentName: $_currentName');
+        print('DEBUG: _currentGender: $_currentGender');
+        print('DEBUG: _currentSubject: $_currentSubject');
+        print('DEBUG: _currentAddress: $_currentAddress');
+
+        if (mounted) {
+          Navigator.pop(context); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Teacher information updated successfully!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        print('DEBUG: ❌ HTTP request failed');
+        print('DEBUG: Status: ${response.statusCode}');
+        print('DEBUG: Response: ${response.body}');
+        throw Exception(
+            'Failed to update teacher information. Status: ${response.statusCode}, Response: ${response.body}');
+      }
+    } catch (e) {
+      print('DEBUG: ❌ Save failed with exception: $e');
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save changes: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
   // NEW: Session-Free Teacher Credential Creation using HTTP API
   Future<void> _createTeacherCredentialsViaHTTP(
       String username, String password) async {
@@ -712,6 +1112,26 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
+    // Generate a suggested username based on teacher's name
+    String generateSuggestedUsername() {
+      final name = widget.teacher.fullName.toLowerCase();
+      final words = name.split(' ');
+      if (words.length >= 2) {
+        final firstName = words[0];
+        final lastName = words.last;
+        final timestamp =
+            DateTime.now().millisecondsSinceEpoch.toString().substring(8);
+        return '${firstName.substring(0, firstName.length.clamp(0, 3))}${lastName.substring(0, lastName.length.clamp(0, 3))}$timestamp';
+      } else {
+        final timestamp =
+            DateTime.now().millisecondsSinceEpoch.toString().substring(8);
+        return '${name.replaceAll(' ', '').substring(0, name.length.clamp(0, 6))}$timestamp';
+      }
+    }
+
+    // Set initial suggested username
+    usernameController.text = generateSuggestedUsername();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -736,10 +1156,17 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                 const SizedBox(height: 20),
                 TextFormField(
                   controller: usernameController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Username',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.person),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.blue),
+                      onPressed: () {
+                        usernameController.text = generateSuggestedUsername();
+                      },
+                      tooltip: 'Generate new suggestion',
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -751,13 +1178,48 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                     return null;
                   },
                 ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline,
+                          color: Colors.blue[600], size: 16),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text(
+                          'Tip: Click the refresh icon to generate a new username suggestion',
+                          style: TextStyle(fontSize: 11, color: Colors.blue),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: passwordController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock),
+                    suffixIcon: IconButton(
+                      icon:
+                          const Icon(Icons.auto_fix_high, color: Colors.green),
+                      onPressed: () {
+                        // Generate a simple but secure password
+                        final timestamp = DateTime.now()
+                            .millisecondsSinceEpoch
+                            .toString()
+                            .substring(8);
+                        passwordController.text = 'Pass$timestamp';
+                      },
+                      tooltip: 'Generate password',
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -784,7 +1246,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'This will create a new user account for the teacher.',
+                          'This will create a new user account for the teacher. If username exists, please try a different one.',
                           style: TextStyle(fontSize: 12),
                         ),
                       ),
@@ -2078,7 +2540,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
       final scheduleResponse = await scheduleQuery.query();
       if (scheduleResponse.success && scheduleResponse.results != null) {
         for (var schedule in scheduleResponse.results!) {
-          await schedule.destroy();
+          await schedule.delete();
         }
         print('DEBUG: ✅ Schedule assignments deleted successfully');
       }
@@ -2093,7 +2555,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
           teacherResponse.results != null &&
           teacherResponse.results!.isNotEmpty) {
         final teacherRecord = teacherResponse.results!.first;
-        final deleteResponse = await teacherRecord.destroy();
+        final deleteResponse = await teacherRecord.delete();
 
         if (deleteResponse.success) {
           print('DEBUG: ✅ Teacher deleted successfully');

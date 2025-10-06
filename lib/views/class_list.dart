@@ -3,6 +3,7 @@ import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive/hive.dart';
 import '../screens/class_qr_code_screen.dart';
 import '../services/class_service.dart';
+import '../services/cache_service.dart';
 import '../screens/enrolled_students_screen.dart';
 
 class ClassList extends StatefulWidget {
@@ -54,6 +55,14 @@ class _ClassListState extends State<ClassList> {
       error = '';
     });
     try {
+      // Clear cache first if force refresh is requested
+      if (forceRefresh) {
+        final box = await Hive.openBox('classListBox');
+        await box.delete('classList');
+        // Also clear the CacheService cache
+        await CacheService.clearClassList();
+      }
+
       final classes = await ClassService.getClassList();
       classList = classes;
       final box = await Hive.openBox('classListBox');
@@ -250,12 +259,45 @@ class _ClassListState extends State<ClassList> {
               onPressed: () async {
                 final newName = controller.text.trim();
                 if (newName.isNotEmpty) {
-                  final classPointer = ParseObject('Class')
-                    ..objectId = classObj['objectId'];
-                  classPointer.set('classname', newName);
-                  await classPointer.save();
-                  Navigator.of(context).pop();
-                  _loadClassList(forceRefresh: true);
+                  try {
+                    // First fetch the existing object from Parse
+                    final query =
+                        QueryBuilder<ParseObject>(ParseObject('Class'))
+                          ..whereEqualTo('objectId', classObj['objectId']);
+                    final response = await query.query();
+
+                    if (response.success &&
+                        response.results != null &&
+                        response.results!.isNotEmpty) {
+                      final existingClass = response.results!.first;
+                      existingClass.set('classname', newName);
+                      final saveResponse = await existingClass.save();
+
+                      if (saveResponse.success) {
+                        Navigator.of(context).pop();
+                        await _loadClassList(forceRefresh: true);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content:
+                                  Text('Class name updated successfully!')),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(
+                                  'Failed to update class: ${saveResponse.error?.message}')),
+                        );
+                      }
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Class not found')),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error updating class: $e')),
+                    );
+                  }
                 }
               },
               child: const Text('Save'),

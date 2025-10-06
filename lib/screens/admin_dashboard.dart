@@ -4,7 +4,6 @@ import '../widgets/modern_dashboard.dart';
 import 'settings_screen.dart';
 import 'student_dashboard.dart';
 import '../views/class_list.dart';
-import '../screens/assign_student_to_class_screen.dart';
 import 'student_attendance_screen.dart';
 import 'teacher_qr_scan_screen.dart';
 import 'teacher_detail_screen.dart'; // For teacher card navigation
@@ -316,12 +315,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
         // TODO: Implement exam result navigation
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Exam Result card clicked')),
-        );
-      },
-      onEnrolmentsTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const AssignStudentToClassScreen()),
         );
       },
       onQRScanTap: () {

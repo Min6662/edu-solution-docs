@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'add_student_information_screen.dart';
 import '../services/class_service.dart';
-import '../widgets/app_bottom_navigation.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 
@@ -139,7 +138,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        automaticallyImplyLeading: false, // Remove back button
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('search and find students',
             style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         centerTitle: false,
@@ -225,11 +227,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
         backgroundColor: Colors.blue,
         tooltip: 'Add Student',
         child: const Icon(Icons.add, color: Colors.white),
-      ),
-      bottomNavigationBar: AppBottomNavigation(
-        currentIndex: widget.currentIndex,
-        userRole: userRole, // Pass userRole for proper access control
-        // Remove onTabChanged to let AppBottomNavigation handle all navigation
       ),
     );
   }
