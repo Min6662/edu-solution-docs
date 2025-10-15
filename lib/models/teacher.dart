@@ -149,7 +149,8 @@ class Teacher {
       fullName: data['fullName'] ?? '',
       subject: data['subject'] ?? '',
       gender: data['gender'] ?? '',
-      photoUrl: data['photo'],
+      photoUrl:
+          data['photoUrl'] ?? data['photo'], // Check both possible field names
       yearsOfExperience: data['yearsOfExperience'] ?? 0,
       rating: (data['rating'] ?? 0.0).toDouble(),
       ratingCount: data['ratingCount'] ?? 0,

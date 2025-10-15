@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 import '../services/auth_service.dart';
 import '../services/attendance_service.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class TeacherQRScanScreen extends StatefulWidget {
   const TeacherQRScanScreen({super.key});
@@ -64,14 +65,20 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
   Future<void> _processQRCode(String? classCode) async {
     if (classCode == null || teacherObjectId == null) {
-      _showMessage('Invalid QR code or teacher information missing.',
+      _showMessage(AppLocalizations.of(context)!.invalidQRCodeOrTeacherInfo,
           isError: true);
       return;
     }
 
     try {
+      // Debug logging
+      print('=== QR PROCESSING DEBUG ===');
+      print('Scanned Class Code: $classCode');
+      print('Current Teacher ID: $teacherObjectId');
+
       // Show processing indicator
-      _showMessage('Validating attendance...', isLoading: true);
+      _showMessage(AppLocalizations.of(context)!.validatingAttendance,
+          isLoading: true);
 
       // Step 1: Validate if teacher has subject at current time for this class
       final scheduleEntry =
@@ -82,7 +89,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
       if (scheduleEntry == null) {
         _showMessage(
-          'You don\'t have any subject scheduled right now for class $classCode.',
+          '${AppLocalizations.of(context)!.noSubjectScheduledNow} $classCode.',
           isError: true,
         );
         return;
@@ -98,11 +105,14 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       if (result['success'] == true) {
         _showAttendanceSuccess(result);
       } else {
-        _showMessage(result['message'] ?? 'Failed to record attendance',
+        _showMessage(
+            result['message'] ??
+                AppLocalizations.of(context)!.failedToRecordAttendance,
             isError: true);
       }
     } catch (e) {
-      _showMessage('Error processing QR code: $e', isError: true);
+      _showMessage('${AppLocalizations.of(context)!.errorProcessingQRCode}: $e',
+          isError: true);
     }
   }
 
@@ -149,20 +159,22 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                 size: 28,
               ),
               const SizedBox(width: 8),
-              const Text('Attendance Recorded'),
+              Text(AppLocalizations.of(context)!.attendanceRecorded),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInfoRow('Subject:', subjectName),
-              _buildInfoRow('Class:', className),
-              _buildInfoRow('Period:', period),
-              _buildInfoRow('Status:', status),
-              _buildInfoRow('Time:', _formatCurrentTime()),
+              _buildInfoRow(AppLocalizations.of(context)!.subject, subjectName),
+              _buildInfoRow(AppLocalizations.of(context)!.className, className),
+              _buildInfoRow(AppLocalizations.of(context)!.period, period),
+              _buildInfoRow(AppLocalizations.of(context)!.status, status),
+              _buildInfoRow(
+                  AppLocalizations.of(context)!.time, _formatCurrentTime()),
               if (minutesSinceStart > 0)
-                _buildInfoRow('Minutes since start:', '$minutesSinceStart min'),
+                _buildInfoRow(AppLocalizations.of(context)!.minutesSinceStart,
+                    '$minutesSinceStart ${AppLocalizations.of(context)!.min}'),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -188,8 +200,8 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                     Expanded(
                       child: Text(
                         status == 'Late'
-                            ? 'Marked as late (scanned more than 20 minutes after class start)'
-                            : 'Perfect timing! Attendance recorded on time.',
+                            ? AppLocalizations.of(context)!.markedAsLate
+                            : AppLocalizations.of(context)!.perfectTiming,
                         style: TextStyle(
                           color: status == 'Late'
                               ? Colors.orange.shade800
@@ -206,7 +218,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(AppLocalizations.of(context)!.ok),
             ),
           ],
         );
@@ -244,7 +256,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Smart Attendance Scanner'),
+        title: Text(AppLocalizations.of(context)!.smartAttendanceScanner),
         backgroundColor: Colors.blue,
         elevation: 0,
       ),
@@ -263,7 +275,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Scan classroom QR code to record attendance',
+                        AppLocalizations.of(context)!.scanClassroomQRCode,
                         style: TextStyle(
                           color: Colors.blue.shade700,
                           fontWeight: FontWeight.w500,
@@ -274,7 +286,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'System will automatically check your schedule and mark you as "On Time" or "Late"',
+                  AppLocalizations.of(context)!.systemWillCheckSchedule,
                   style: TextStyle(
                     color: Colors.blue.shade600,
                     fontSize: 12,
@@ -303,15 +315,16 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                 if (isProcessing)
                   Container(
                     color: Colors.black54,
-                    child: const Center(
+                    child: Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          CircularProgressIndicator(color: Colors.white),
-                          SizedBox(height: 16),
+                          const CircularProgressIndicator(color: Colors.white),
+                          const SizedBox(height: 16),
                           Text(
-                            'Processing...',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                            AppLocalizations.of(context)!.processing,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 16),
                           ),
                         ],
                       ),
@@ -330,15 +343,19 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (scanResult == null)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Column(
                       children: [
-                        Icon(Icons.qr_code_scanner,
-                            color: Colors.grey.shade600),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Point camera at classroom QR code',
-                          style: TextStyle(color: Colors.grey.shade600),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.qr_code_scanner,
+                                color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Text(
+                              AppLocalizations.of(context)!.pointCameraAtQR,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
                         ),
                       ],
                     )
@@ -346,11 +363,11 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
                     Column(
                       children: [
                         Text(
-                          'Last scanned: $scanResult',
+                          '${AppLocalizations.of(context)!.lastScanned}: $scanResult',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          'Processed at ${_formatCurrentTime()}',
+                          '${AppLocalizations.of(context)!.processedAt} ${_formatCurrentTime()}',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 12,

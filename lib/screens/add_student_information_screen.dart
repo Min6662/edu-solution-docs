@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
+import 'package:provider/provider.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:hive/hive.dart';
+import '../services/language_service.dart';
+import '../services/class_service.dart';
+import '../services/cache_service.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class AddStudentInformationScreen extends StatefulWidget {
-  const AddStudentInformationScreen({super.key});
+  final Map<String, dynamic>?
+      studentData; // Add optional student data for editing
+
+  const AddStudentInformationScreen({super.key, this.studentData});
 
   @override
   State<AddStudentInformationScreen> createState() =>
@@ -18,9 +27,581 @@ class _AddStudentInformationScreenState
   final TextEditingController addressController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController studyStatusController = TextEditingController();
+  final TextEditingController motherNameController = TextEditingController();
+  final TextEditingController fatherNameController = TextEditingController();
+  final TextEditingController placeOfBirthController = TextEditingController();
   DateTime? dateOfBirth;
   File? imageFile;
+  String? existingImageUrl;
+  bool photoDeleted = false; // Flag to track if photo was intentionally deleted
   bool loading = false;
+  bool get isEditing => widget.studentData != null;
+
+  // Class selection variables
+  List<Map<String, dynamic>> classList = [];
+  Map<String, dynamic>? selectedMorningClass;
+  Map<String, dynamic>? selectedEveningClass;
+  bool loadingClasses = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadClasses();
+    if (isEditing) {
+      _populateFields();
+    } else {
+      // For new students, load any cached form data (text fields and image)
+      // Class selections will be restored after classes are loaded
+      _loadFormDataFromCache();
+    }
+
+    // Add listeners to save form data as user types
+    _addFormListeners();
+  }
+
+  void _addFormListeners() {
+    nameController.addListener(_saveFormDataToCache);
+    gradeController.addListener(_saveFormDataToCache);
+    addressController.addListener(_saveFormDataToCache);
+    phoneController.addListener(_saveFormDataToCache);
+    studyStatusController.addListener(_saveFormDataToCache);
+    motherNameController.addListener(_saveFormDataToCache);
+    fatherNameController.addListener(_saveFormDataToCache);
+    placeOfBirthController.addListener(_saveFormDataToCache);
+  }
+
+  Future<void> _loadClasses() async {
+    setState(() {
+      loadingClasses = true;
+    });
+
+    try {
+      // Try to load from cache first
+      await _loadClassesFromCache();
+
+      // Load fresh data in background
+      final classes = await ClassService.getClassList();
+      if (classes.isNotEmpty) {
+        setState(() {
+          classList = classes;
+          loadingClasses = false;
+        });
+
+        // Save to cache
+        await _saveClassesToCache(classes);
+
+        // If editing and classes are loaded, populate class selection
+        if (isEditing && classList.isNotEmpty) {
+          _populateClassSelection();
+        } else if (!isEditing) {
+          // If new student and cached form data exists, restore class selections
+          final box = await Hive.openBox('addStudentCache');
+          final cachedData = box.get('draftFormData');
+          if (cachedData != null) {
+            await _restoreClassSelections(
+                Map<String, dynamic>.from(cachedData));
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading classes: $e');
+      setState(() {
+        loadingClasses = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    // Remove listeners
+    nameController.removeListener(_saveFormDataToCache);
+    gradeController.removeListener(_saveFormDataToCache);
+    addressController.removeListener(_saveFormDataToCache);
+    phoneController.removeListener(_saveFormDataToCache);
+    studyStatusController.removeListener(_saveFormDataToCache);
+    motherNameController.removeListener(_saveFormDataToCache);
+    fatherNameController.removeListener(_saveFormDataToCache);
+    placeOfBirthController.removeListener(_saveFormDataToCache);
+
+    // Dispose controllers
+    nameController.dispose();
+    gradeController.dispose();
+    addressController.dispose();
+    phoneController.dispose();
+    studyStatusController.dispose();
+    motherNameController.dispose();
+    fatherNameController.dispose();
+    placeOfBirthController.dispose();
+
+    super.dispose();
+  }
+
+  Future<void> _loadClassesFromCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      final cachedData = box.get('classList');
+
+      if (cachedData != null && cachedData is List) {
+        final cachedClasses = List<Map<String, dynamic>>.from(
+            cachedData.map((item) => Map<String, dynamic>.from(item)));
+
+        if (cachedClasses.isNotEmpty) {
+          setState(() {
+            classList = cachedClasses;
+            loadingClasses = false;
+          });
+          print('Loaded ${cachedClasses.length} classes from cache');
+        }
+      }
+    } catch (e) {
+      print('Error loading classes from cache: $e');
+    }
+  }
+
+  Future<void> _saveClassesToCache(List<Map<String, dynamic>> classes) async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      await box.put('classList', classes);
+      print('Saved ${classes.length} classes to cache');
+    } catch (e) {
+      print('Error saving classes to cache: $e');
+    }
+  }
+
+  // Cache methods for form data
+  Future<void> _saveFormDataToCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      final formData = {
+        'name': nameController.text,
+        'grade': gradeController.text,
+        'address': addressController.text,
+        'phoneNumber': phoneController.text,
+        'studyStatus': studyStatusController.text,
+        'motherName': motherNameController.text,
+        'fatherName': fatherNameController.text,
+        'placeOfBirth': placeOfBirthController.text,
+        'morningClassId': selectedMorningClass?['objectId'],
+        'morningClassName': selectedMorningClass?['classname'],
+        'eveningClassId': selectedEveningClass?['objectId'],
+        'eveningClassName': selectedEveningClass?['classname'],
+        'existingImageUrl': existingImageUrl,
+        'photoDeleted': photoDeleted, // Save deletion flag
+        'hasImageFile': imageFile != null,
+        'imageFileName': imageFile?.path.split('/').last,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      await box.put('draftFormData', formData);
+
+      // Cache the image file separately if it exists
+      if (imageFile != null) {
+        await _saveImageToCache();
+      }
+
+      print(
+          'Form data saved to cache (including image info and deletion flag)');
+    } catch (e) {
+      print('Error saving form data to cache: $e');
+    }
+  }
+
+  Future<void> _saveImageToCache() async {
+    try {
+      if (imageFile == null) return;
+
+      final box = await Hive.openBox('addStudentCache');
+      final bytes = await imageFile!.readAsBytes();
+      await box.put('cachedImageBytes', bytes);
+      await box.put('cachedImagePath', imageFile!.path);
+      print('Image saved to cache: ${imageFile!.path}');
+    } catch (e) {
+      print('Error saving image to cache: $e');
+    }
+  }
+
+  Future<void> _loadImageFromCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      final cachedBytes = box.get('cachedImageBytes');
+      final cachedPath = box.get('cachedImagePath');
+
+      if (cachedBytes != null && cachedPath != null) {
+        // Create a temporary file from cached bytes
+        final tempDir = Directory.systemTemp;
+        final fileName =
+            'cached_image_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final tempFile = File('${tempDir.path}/$fileName');
+
+        await tempFile.writeAsBytes(List<int>.from(cachedBytes));
+
+        setState(() {
+          imageFile = tempFile;
+        });
+
+        print('Image loaded from cache: $cachedPath');
+      }
+    } catch (e) {
+      print('Error loading image from cache: $e');
+    }
+  }
+
+  Future<void> _loadFormDataFromCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      final cachedData = box.get('draftFormData');
+
+      if (cachedData != null && cachedData is Map) {
+        final formData = Map<String, dynamic>.from(cachedData);
+
+        // Check if cache is not too old (within 24 hours)
+        final timestamp = formData['timestamp'] as int?;
+        if (timestamp != null) {
+          final cacheTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+          final now = DateTime.now();
+          final difference = now.difference(cacheTime);
+
+          if (difference.inHours < 24) {
+            setState(() {
+              nameController.text = formData['name'] ?? '';
+              gradeController.text = formData['grade'] ?? '';
+              addressController.text = formData['address'] ?? '';
+              phoneController.text = formData['phoneNumber'] ?? '';
+              studyStatusController.text = formData['studyStatus'] ?? '';
+              motherNameController.text = formData['motherName'] ?? '';
+              fatherNameController.text = formData['fatherName'] ?? '';
+              placeOfBirthController.text = formData['placeOfBirth'] ?? '';
+              existingImageUrl = formData['existingImageUrl'];
+              photoDeleted =
+                  formData['photoDeleted'] ?? false; // Restore deletion flag
+            });
+
+            // Load cached image if available
+            if (formData['hasImageFile'] == true) {
+              await _loadImageFromCache();
+            }
+
+            // Restore class selections if available and classList is loaded
+            await _restoreClassSelections(formData);
+
+            print(
+                'Form data loaded from cache (including image and dropdown selections)');
+          } else {
+            // Cache is too old, clear it
+            await _clearFormDataCache();
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading form data from cache: $e');
+    }
+  }
+
+  Future<void> _restoreClassSelections(Map<String, dynamic> formData) async {
+    // Wait a bit to ensure classList is loaded
+    int attempts = 0;
+    while (classList.isEmpty && attempts < 10) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+
+    if (classList.isNotEmpty) {
+      final morningClassId = formData['morningClassId'];
+      final eveningClassId = formData['eveningClassId'];
+
+      print(
+          'Restoring class selections - Morning: $morningClassId, Evening: $eveningClassId');
+      print(
+          'Available classes: ${classList.map((c) => '${c['objectId']}: ${c['classname']}').join(', ')}');
+
+      setState(() {
+        if (morningClassId != null) {
+          try {
+            selectedMorningClass = classList.firstWhere(
+              (cls) => cls['objectId'] == morningClassId,
+            );
+            print(
+                'Restored morning class: ${selectedMorningClass!['classname']}');
+          } catch (e) {
+            print('Cached morning class not found: $morningClassId');
+          }
+        }
+
+        if (eveningClassId != null) {
+          try {
+            selectedEveningClass = classList.firstWhere(
+              (cls) => cls['objectId'] == eveningClassId,
+            );
+            print(
+                'Restored evening class: ${selectedEveningClass!['classname']}');
+          } catch (e) {
+            print('Cached evening class not found: $eveningClassId');
+          }
+        }
+      });
+
+      // Update grade controller based on restored selections
+      _updateGradeController();
+    } else {
+      print('No classList available for class selection restoration');
+    }
+  }
+
+  Future<void> _clearFormDataCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      await box.delete('draftFormData');
+      await box.delete('cachedImageBytes');
+      await box.delete('cachedImagePath');
+      print('Form data and image cache cleared');
+    } catch (e) {
+      print('Error clearing form data cache: $e');
+    }
+  }
+
+  // Clear all cache data
+  Future<void> _clearAllCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      await box.clear();
+
+      // Also reset form state
+      setState(() {
+        selectedMorningClass = null;
+        selectedEveningClass = null;
+        imageFile = null;
+        existingImageUrl = null;
+        photoDeleted = false; // Reset deletion flag
+      });
+
+      // Clear all text controllers
+      nameController.clear();
+      gradeController.clear();
+      addressController.clear();
+      phoneController.clear();
+      studyStatusController.clear();
+      motherNameController.clear();
+      fatherNameController.clear();
+      placeOfBirthController.clear();
+
+      print('All cache and form data cleared');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cache cleared - form reset'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error clearing all cache: $e');
+    }
+  }
+
+  // Debug method to show cache contents
+  Future<void> _debugShowCache() async {
+    try {
+      final box = await Hive.openBox('addStudentCache');
+      print('=== CACHE DEBUG INFO ===');
+      print('Cache keys: ${box.keys.toList()}');
+
+      final formData = box.get('draftFormData');
+      if (formData != null) {
+        print('Form data cache:');
+        final data = Map<String, dynamic>.from(formData);
+        data.forEach((key, value) {
+          if (key == 'cachedImageBytes') {
+            print('  $key: [${value.length} bytes]');
+          } else {
+            print('  $key: $value');
+          }
+        });
+      }
+
+      final classList = box.get('classList');
+      if (classList != null) {
+        print('Cached classes: ${(classList as List).length} items');
+      }
+
+      final imageBytes = box.get('cachedImageBytes');
+      if (imageBytes != null) {
+        print('Cached image: ${imageBytes.length} bytes');
+      }
+
+      print('========================');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cache info logged - check console'),
+            backgroundColor: Colors.green[600],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error showing cache debug: $e');
+    }
+  }
+
+  void _populateClassSelection() {
+    final data = widget.studentData!;
+
+    print('=== CLASS SELECTION POPULATION DEBUG ===');
+    print('Student data keys: ${data.keys.toList()}');
+    print('classList length: ${classList.length}');
+    print('classList sample: ${classList.take(2).toList()}');
+
+    // Handle morning class
+    final morningClassId = data['morningClassId'];
+    print('Morning class ID from data: "$morningClassId"');
+    if (morningClassId != null) {
+      try {
+        selectedMorningClass = classList.firstWhere(
+          (cls) => cls['objectId'] == morningClassId,
+        );
+        print('Found morning class: ${selectedMorningClass!['classname']}');
+      } catch (e) {
+        print('Morning class with ID $morningClassId not found in classList');
+        print(
+            'Available class IDs: ${classList.map((c) => c['objectId']).toList()}');
+      }
+    }
+
+    // Handle evening class
+    final eveningClassId = data['eveningClassId'];
+    print('Evening class ID from data: "$eveningClassId"');
+    if (eveningClassId != null) {
+      try {
+        selectedEveningClass = classList.firstWhere(
+          (cls) => cls['objectId'] == eveningClassId,
+        );
+        print('Found evening class: ${selectedEveningClass!['classname']}');
+      } catch (e) {
+        print('Evening class with ID $eveningClassId not found in classList');
+        print(
+            'Available class IDs: ${classList.map((c) => c['objectId']).toList()}');
+      }
+    }
+
+    // If no class IDs found in student data, try to load from Enrolment table
+    if (morningClassId == null && eveningClassId == null) {
+      print(
+          'No class IDs in student data, attempting to load from Enrolment table...');
+      _loadClassesFromEnrolments();
+    }
+
+    print('Final selectedMorningClass: $selectedMorningClass');
+    print('Final selectedEveningClass: $selectedEveningClass');
+    print('=====================================');
+
+    setState(() {});
+  }
+
+  // Load student's classes from Enrolment table (fallback method)
+  Future<void> _loadClassesFromEnrolments() async {
+    try {
+      final studentId = widget.studentData!['objectId'];
+      if (studentId == null) return;
+
+      print('Loading enrolments for student ID: $studentId');
+
+      final query = QueryBuilder<ParseObject>(ParseObject('Enrolment'))
+        ..whereEqualTo('student', ParseObject('Student')..objectId = studentId);
+
+      final response = await query.query();
+      if (response.success && response.results != null) {
+        print('Found ${response.results!.length} enrolments');
+
+        for (final enrolment in response.results!) {
+          final classPointer = enrolment.get<ParseObject>('class');
+          final type = enrolment.get<String>('type');
+          final classId = classPointer?.objectId;
+
+          print('Enrolment type: $type, classId: $classId');
+
+          if (classId != null) {
+            try {
+              final classInfo = classList.firstWhere(
+                (cls) => cls['objectId'] == classId,
+              );
+
+              if (type == 'morning') {
+                selectedMorningClass = classInfo;
+                print(
+                    'Set morning class from enrolment: ${classInfo['classname']}');
+              } else if (type == 'evening') {
+                selectedEveningClass = classInfo;
+                print(
+                    'Set evening class from enrolment: ${classInfo['classname']}');
+              }
+            } catch (e) {
+              print('Class with ID $classId not found in classList');
+            }
+          }
+        }
+
+        setState(() {});
+      }
+    } catch (e) {
+      print('Error loading classes from enrolments: $e');
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Force rebuild when dependencies change to ensure image loads
+    if (isEditing && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _populateFields() {
+    final data = widget.studentData!;
+
+    // Enhanced debug logging
+    print('=== ENHANCED EDIT SCREEN DEBUG ===');
+    print('Complete student data received:');
+    data.forEach((key, value) {
+      print('  $key: "$value" (${value.runtimeType})');
+    });
+    print('=====================================');
+
+    nameController.text = data['name'] ?? '';
+    gradeController.text = data['grade'] ?? '';
+    addressController.text = data['address'] ?? '';
+    phoneController.text = data['phoneNumber'] ?? '';
+    studyStatusController.text = data['studyStatus'] ?? '';
+    motherNameController.text = data['motherName'] ?? '';
+    fatherNameController.text = data['fatherName'] ?? '';
+    placeOfBirthController.text = data['placeOfBirth'] ?? '';
+    existingImageUrl = data['photo'];
+
+    // Debug print populated values
+    print('=== POPULATED FIELD VALUES ===');
+    print('Name: "${nameController.text}"');
+    print('Grade: "${gradeController.text}"');
+    print('Address: "${addressController.text}"');
+    print('Phone: "${phoneController.text}"');
+    print('Study Status: "${studyStatusController.text}"');
+    print('Mother Name: "${motherNameController.text}"');
+    print('Father Name: "${fatherNameController.text}"');
+    print('Place of Birth: "${placeOfBirthController.text}"');
+    print('Photo URL: "$existingImageUrl"');
+    print('===============================');
+
+    if (data['dateOfBirth'] != null) {
+      try {
+        dateOfBirth = DateTime.parse(data['dateOfBirth']);
+        print('Date of Birth parsed: $dateOfBirth');
+      } catch (e) {
+        print('Error parsing date: $e');
+      }
+    } else {
+      print('No dateOfBirth found in data');
+    }
+  }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
@@ -28,7 +609,10 @@ class _AddStudentInformationScreenState
     if (pickedFile != null) {
       setState(() {
         imageFile = File(pickedFile.path);
+        photoDeleted = false; // Reset deletion flag when new image is selected
       });
+      // Save form data including new image to cache
+      await _saveFormDataToCache();
     }
   }
 
@@ -41,39 +625,232 @@ class _AddStudentInformationScreenState
     return null;
   }
 
-  Future<void> _saveStudent() async {
-    setState(() => loading = true);
-    String? photoUrl;
-    if (imageFile != null) {
-      photoUrl = await _uploadImage(imageFile!);
-    }
-    final student = ParseObject('Student')
-      ..set('name', nameController.text.trim())
-      ..set('grade', gradeController.text.trim())
-      ..set('address', addressController.text.trim())
-      ..set('phoneNumber', phoneController.text.trim())
-      ..set('studyStatus', studyStatusController.text.trim())
-      ..set('dateOfBirth', dateOfBirth?.toIso8601String())
-      ..set('photo', photoUrl ?? '');
-
-    // TODO: Replace with actual school context when multi-tenant system is implemented
-    // For now, this will be null until school selection is implemented
-    // student.set('school', ParseObject('School')..objectId = currentSchoolId);
-    final response = await student.save();
-    setState(() => loading = false);
-    if (response.success) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Student added successfully!')),
-        );
-        Navigator.pop(context);
+  // Create or update Enrolment records for selected classes
+  Future<void> _createEnrolments(ParseObject savedStudent) async {
+    try {
+      if (isEditing) {
+        // For editing, first delete existing enrolments for this student
+        await _deleteExistingEnrolments(savedStudent.objectId!);
       }
-    } else {
+
+      // Create morning class enrolment if selected
+      if (selectedMorningClass != null) {
+        final morningEnrolment = ParseObject('Enrolment');
+        morningEnrolment.set('student', savedStudent);
+        morningEnrolment.set('class',
+            ParseObject('Class')..objectId = selectedMorningClass!['objectId']);
+        morningEnrolment.set('type', 'morning');
+        // TODO: Add school when multi-tenant system is implemented
+        // morningEnrolment.set('school', ParseObject('School')..objectId = currentSchoolId);
+
+        final morningResponse = await morningEnrolment.save();
+        if (!morningResponse.success) {
+          print('Failed to create morning enrolment: ${morningResponse.error}');
+        }
+      }
+
+      // Create evening class enrolment if selected
+      if (selectedEveningClass != null) {
+        final eveningEnrolment = ParseObject('Enrolment');
+        eveningEnrolment.set('student', savedStudent);
+        eveningEnrolment.set('class',
+            ParseObject('Class')..objectId = selectedEveningClass!['objectId']);
+        eveningEnrolment.set('type', 'evening');
+        // TODO: Add school when multi-tenant system is implemented
+        // eveningEnrolment.set('school', ParseObject('School')..objectId = currentSchoolId);
+
+        final eveningResponse = await eveningEnrolment.save();
+        if (!eveningResponse.success) {
+          print('Failed to create evening enrolment: ${eveningResponse.error}');
+        }
+      }
+
+      // Clear enrolled students cache for affected classes so they refresh
+      if (selectedMorningClass != null) {
+        await CacheService.clearEnrolledStudents(
+            selectedMorningClass!['objectId']);
+      }
+      if (selectedEveningClass != null) {
+        await CacheService.clearEnrolledStudents(
+            selectedEveningClass!['objectId']);
+      }
+    } catch (e) {
+      print('Error creating enrolments: $e');
+    }
+  }
+
+  // Delete existing enrolments for a student (used when editing)
+  Future<void> _deleteExistingEnrolments(String studentId) async {
+    try {
+      final query = QueryBuilder<ParseObject>(ParseObject('Enrolment'))
+        ..whereEqualTo('student', ParseObject('Student')..objectId = studentId);
+
+      final response = await query.query();
+      if (response.success && response.results != null) {
+        for (final enrolment in response.results!) {
+          await enrolment.delete();
+        }
+      }
+    } catch (e) {
+      print('Error deleting existing enrolments: $e');
+    }
+  }
+
+  Future<void> _saveStudent() async {
+    // Validate required fields
+    if (nameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Name is required'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+      return;
+    }
+
+    if (selectedMorningClass == null && selectedEveningClass == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Please select at least one class (morning or evening)'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+      return;
+    }
+
+    setState(() => loading = true);
+    String? photoUrl = existingImageUrl;
+
+    // If photo was intentionally deleted, set to empty string
+    if (photoDeleted) {
+      photoUrl = '';
+    }
+    // If user selected a new image, upload it
+    else if (imageFile != null) {
+      photoUrl = await _uploadImage(imageFile!);
+    } else if (isEditing) {
+      // For editing, only keep the original photo if it's not the fallback URL or empty
+      final originalPhoto = widget.studentData!['photo'];
+      if (originalPhoto != null &&
+          originalPhoto.toString().trim().isNotEmpty &&
+          !originalPhoto.toString().contains('randomuser.me')) {
+        photoUrl = originalPhoto.toString();
+      } else {
+        photoUrl = '';
+      }
+    }
+
+    try {
+      ParseObject student;
+
+      if (isEditing) {
+        // Update existing student
+        final objectId = widget.studentData!['objectId'];
+        student = ParseObject('Student')..objectId = objectId;
+      } else {
+        // Create new student
+        student = ParseObject('Student');
+      }
+
+      student
+        ..set('name', nameController.text.trim())
+        ..set('grade', gradeController.text.trim())
+        ..set('address', addressController.text.trim())
+        ..set('phoneNumber', phoneController.text.trim())
+        ..set('studyStatus', studyStatusController.text.trim())
+        ..set('motherName', motherNameController.text.trim())
+        ..set('fatherName', fatherNameController.text.trim())
+        ..set('placeOfBirth', placeOfBirthController.text.trim())
+        ..set('dateOfBirth', dateOfBirth?.toIso8601String())
+        ..set('photo', photoUrl ?? '');
+
+      // Set morning class relationship if selected
+      if (selectedMorningClass != null) {
+        student.set('morningClass',
+            ParseObject('Class')..objectId = selectedMorningClass!['objectId']);
+        student.set('morningClassId', selectedMorningClass!['objectId']);
+        student.set('morningClassName', selectedMorningClass!['classname']);
+      }
+
+      // Set evening class relationship if selected
+      if (selectedEveningClass != null) {
+        student.set('eveningClass',
+            ParseObject('Class')..objectId = selectedEveningClass!['objectId']);
+        student.set('eveningClassId', selectedEveningClass!['objectId']);
+        student.set('eveningClassName', selectedEveningClass!['classname']);
+      }
+
+      // For backward compatibility, set grade to combined class names
+      String gradeText = '';
+      if (selectedMorningClass != null && selectedEveningClass != null) {
+        gradeText =
+            '${selectedMorningClass!['classname']} / ${selectedEveningClass!['classname']}';
+      } else if (selectedMorningClass != null) {
+        gradeText = '${selectedMorningClass!['classname']} (Morning)';
+      } else if (selectedEveningClass != null) {
+        gradeText = '${selectedEveningClass!['classname']} (Evening)';
+      }
+      student.set('grade', gradeText);
+
+      print('=== SAVE STUDENT DEBUG ===');
+      print('Student: ${nameController.text.trim()}');
+      print('IsEditing: $isEditing');
+      print('ImageFile selected: ${imageFile != null}');
+      print('PhotoUrl being saved: "$photoUrl"');
+      print('========================');
+
+      // TODO: Replace with actual school context when multi-tenant system is implemented
+      // For now, this will be null until school selection is implemented
+      // student.set('school', ParseObject('School')..objectId = currentSchoolId);
+
+      final response = await student.save();
+
+      if (response.success) {
+        // Create Enrolment records for selected classes
+        await _createEnrolments(response.result!);
+
+        setState(() => loading = false);
+
+        if (mounted) {
+          final l10n = AppLocalizations.of(context)!;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isEditing
+                  ? l10n.studentUpdatedSuccessfully
+                  : l10n.studentAddedSuccessfully),
+              backgroundColor: Colors.green[600],
+            ),
+          );
+
+          // Clear form cache when student is successfully saved
+          if (!isEditing) {
+            await _clearFormDataCache();
+          }
+
+          Navigator.pop(context, true); // Return true to indicate success
+        }
+      } else {
+        if (mounted) {
+          final l10n = AppLocalizations.of(context)!;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isEditing
+                  ? '${l10n.failedToUpdateStudent}: ${response.error?.message ?? l10n.unknownError}'
+                  : '${l10n.failedToAddStudent}: ${response.error?.message ?? l10n.unknownError}'),
+              backgroundColor: Colors.red[600],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'Failed to add student: ${response.error?.message ?? 'Unknown error'}')),
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red[600],
+          ),
         );
       }
     }
@@ -86,40 +863,479 @@ class _AddStudentInformationScreenState
     bool readOnly = false,
     VoidCallback? onTap,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: TextField(
         controller: controller,
         readOnly: readOnly,
         onTap: onTap,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF2D3748),
+        ),
         decoration: InputDecoration(
           prefixIcon: Container(
-            margin: const EdgeInsets.all(8),
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(8),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+              ),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: Colors.white, size: 20),
           ),
           labelText: label,
-          labelStyle: const TextStyle(color: Colors.black),
+          labelStyle: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+          floatingLabelStyle: const TextStyle(
+            color: Color(0xFF667EEA),
+            fontWeight: FontWeight.bold,
+          ),
           filled: true,
-          fillColor: const Color(0xFFEDEDED),
+          fillColor: Colors.transparent,
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
           ),
         ),
       ),
     );
   }
 
+  Widget _morningClassDropdownField() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      constraints: const BoxConstraints(maxWidth: double.infinity),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonFormField<Map<String, dynamic>>(
+        value: selectedMorningClass,
+        isExpanded: true,
+        decoration: InputDecoration(
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFFFF9500),
+                  Color(0xFFFFB84D)
+                ], // Orange gradient for morning
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.wb_sunny,
+                color: Colors.white, size: 20), // Morning sun icon
+          ),
+          labelText: AppLocalizations.of(context)!.morningClass,
+          labelStyle: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          floatingLabelStyle: const TextStyle(
+            color: Color(0xFFFF9500),
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFFFF9500), width: 2),
+          ),
+        ),
+        items: loadingClasses
+            ? []
+            : classList.map((classItem) {
+                return DropdownMenuItem<Map<String, dynamic>>(
+                  value: classItem,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 250),
+                    child: Text(
+                      classItem['classname'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF2D3748),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                );
+              }).toList(),
+        onChanged: loadingClasses
+            ? null
+            : (Map<String, dynamic>? newValue) {
+                setState(() {
+                  selectedMorningClass = newValue;
+                  _updateGradeController();
+                });
+                // Save form data when class selection changes
+                _saveFormDataToCache();
+              },
+        hint: loadingClasses
+            ? const Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading classes...'),
+                ],
+              )
+            : Text(
+                AppLocalizations.of(context)!.selectMorningClass,
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 13,
+                ),
+              ),
+      ),
+    );
+  }
+
+  void _updateGradeController() {
+    String gradeText = '';
+    if (selectedMorningClass != null && selectedEveningClass != null) {
+      gradeText =
+          '${selectedMorningClass!['classname']} / ${selectedEveningClass!['classname']}';
+    } else if (selectedMorningClass != null) {
+      gradeText = '${selectedMorningClass!['classname']} (Morning)';
+    } else if (selectedEveningClass != null) {
+      gradeText = '${selectedEveningClass!['classname']} (Evening)';
+    }
+    gradeController.text = gradeText;
+  }
+
+  Widget _eveningClassDropdownField() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      constraints: const BoxConstraints(maxWidth: double.infinity),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonFormField<Map<String, dynamic>>(
+        value: selectedEveningClass,
+        isExpanded: true,
+        decoration: InputDecoration(
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF667EEA),
+                  Color(0xFF764BA2)
+                ], // Purple gradient for evening
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.nights_stay,
+                color: Colors.white, size: 20), // Evening moon icon
+          ),
+          labelText: AppLocalizations.of(context)!.eveningClass,
+          labelStyle: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          floatingLabelStyle: const TextStyle(
+            color: Color(0xFF667EEA),
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
+          ),
+        ),
+        items: loadingClasses
+            ? []
+            : classList.map((classItem) {
+                return DropdownMenuItem<Map<String, dynamic>>(
+                  value: classItem,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 250),
+                    child: Text(
+                      classItem['classname'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF2D3748),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                );
+              }).toList(),
+        onChanged: loadingClasses
+            ? null
+            : (Map<String, dynamic>? newValue) {
+                setState(() {
+                  selectedEveningClass = newValue;
+                  _updateGradeController();
+                });
+                // Save form data when class selection changes
+                _saveFormDataToCache();
+              },
+        hint: loadingClasses
+            ? const Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading classes...'),
+                ],
+              )
+            : Text(
+                AppLocalizations.of(context)!.selectEveningClass,
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 13,
+                ),
+              ),
+      ),
+    );
+  }
+
+  // Helper method to validate image URLs
+  bool _isValidImageUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    if (!url.startsWith('http')) return false;
+    try {
+      final uri = Uri.parse(url);
+      return uri.host.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Helper method to build profile image widget
+  // Check if user has an image (either new file or existing URL)
+  bool _hasImage() {
+    if (photoDeleted) return false; // If photo was deleted, don't show it
+    return imageFile != null || _isValidImageUrl(existingImageUrl);
+  }
+
+  // Delete the current image
+  Future<void> _deleteImage() async {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Show confirmation dialog
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Photo'),
+        content: const Text('Are you sure you want to delete this photo?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete == true) {
+      setState(() {
+        imageFile = null;
+        existingImageUrl = null;
+        photoDeleted = true; // Mark as intentionally deleted
+      });
+
+      // Update cache to reflect image deletion
+      await _saveFormDataToCache();
+
+      // Clear cached image
+      try {
+        final box = await Hive.openBox('addStudentCache');
+        await box.delete('cachedImageBytes');
+        await box.delete('cachedImagePath');
+      } catch (e) {
+        print('Error clearing cached image: $e');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Photo deleted'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildProfileImage() {
+    print(
+        'Building profile image - imageFile: ${imageFile != null}, existingImageUrl: $existingImageUrl, photoDeleted: $photoDeleted');
+
+    // If photo was intentionally deleted, show placeholder
+    if (photoDeleted) {
+      print('Photo was deleted, showing placeholder');
+      return CircleAvatar(
+        radius: 60,
+        backgroundColor: Colors.grey[100],
+        child: Icon(Icons.person, size: 60, color: Colors.grey[400]),
+      );
+    }
+
+    // If user has selected a new image file, show that
+    if (imageFile != null) {
+      print('Showing new image file');
+      return CircleAvatar(
+        radius: 60,
+        backgroundColor: Colors.grey[100],
+        backgroundImage: FileImage(imageFile!),
+      );
+    }
+
+    // If we have a valid existing image URL, show it
+    if (_isValidImageUrl(existingImageUrl)) {
+      print('Showing existing image from URL: $existingImageUrl');
+      return CircleAvatar(
+        radius: 60,
+        backgroundColor: Colors.grey[100],
+        child: ClipOval(
+          child: Image.network(
+            existingImageUrl!,
+            width: 120,
+            height: 120,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Container(
+                width: 120,
+                height: 120,
+                color: Colors.grey[200],
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) {
+              print('Error loading profile image: $error');
+              return Icon(Icons.person, size: 60, color: Colors.grey[400]);
+            },
+          ),
+        ),
+      );
+    }
+
+    // Default placeholder
+    print('Showing default placeholder');
+    return CircleAvatar(
+      radius: 60,
+      backgroundColor: Colors.grey[100],
+      child: Icon(Icons.person, size: 60, color: Colors.grey[400]),
+    );
+  }
+
   Future<void> _selectDate() async {
     DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: dateOfBirth ?? DateTime(2000, 1, 1),
+      initialDate: dateOfBirth ?? DateTime(2005, 1, 1),
       firstDate: DateTime(1990),
       lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF667EEA),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+            dialogBackgroundColor: Colors.white,
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
@@ -130,100 +1346,369 @@ class _AddStudentInformationScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Add Student', style: TextStyle(color: Colors.black)),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              GestureDetector(
-                onTap: _pickImage,
-                child: Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 48,
-                      backgroundImage:
-                          imageFile != null ? FileImage(imageFile!) : null,
-                      child: imageFile == null
-                          ? const Icon(Icons.person, size: 48)
-                          : null,
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: const Icon(Icons.camera_alt,
-                            color: Colors.white, size: 20),
+    final l10n = AppLocalizations.of(context)!;
+
+    return Consumer<LanguageService>(
+      builder: (context, languageService, child) {
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8F9FE),
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(80),
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                ),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                ),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios,
+                            color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-              _inputField(
-                  icon: Icons.person,
-                  label: 'Name',
-                  controller: nameController),
-              _inputField(
-                  icon: Icons.grade,
-                  label: 'Grade',
-                  controller: gradeController),
-              _inputField(
-                  icon: Icons.home,
-                  label: 'Address',
-                  controller: addressController),
-              _inputField(
-                  icon: Icons.phone,
-                  label: 'Phone Number',
-                  controller: phoneController),
-              _inputField(
-                  icon: Icons.school,
-                  label: 'Study Status',
-                  controller: studyStatusController),
-              _inputField(
-                  icon: Icons.cake,
-                  label: 'Date of Birth',
-                  controller: TextEditingController(
-                      text: dateOfBirth != null
-                          ? dateOfBirth!.toIso8601String().split('T').first
-                          : ''),
-                  readOnly: true,
-                  onTap: _selectDate),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blue,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                      Expanded(
+                        child: GestureDetector(
+                          onLongPress: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Cache Debug'),
+                                content: const Text('Choose cache action:'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _debugShowCache();
+                                    },
+                                    child: const Text('Show Cache Info'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _clearAllCache();
+                                    },
+                                    child: const Text('Clear All Cache'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Cancel'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          child: Text(
+                            isEditing ? l10n.editStudent : l10n.addStudent,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Debug: Clear cache button (remove in production)
+                      if (!isEditing) // Only show for new students
+                        IconButton(
+                          icon: const Icon(Icons.clear_all,
+                              color: Colors.white70),
+                          onPressed: _clearAllCache,
+                          tooltip: 'Clear cached form data',
+                        ),
+                    ],
                   ),
-                  onPressed: loading ? null : _saveStudent,
-                  child: loading
-                      ? const CircularProgressIndicator()
-                      : const Text('Save', style: TextStyle(fontSize: 16)),
                 ),
               ),
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
-        ),
-      ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 20),
+                  // Profile Image Section
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          spreadRadius: 1,
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          l10n.studentPhoto,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        GestureDetector(
+                          onTap: _pickImage,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.3),
+                                  spreadRadius: 2,
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Stack(
+                              children: [
+                                _buildProfileImage(),
+                                // Camera/Edit button
+                                Positioned(
+                                  bottom: 4,
+                                  right: 4,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [
+                                          Color(0xFF667EEA),
+                                          Color(0xFF764BA2)
+                                        ],
+                                      ),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.grey.withOpacity(0.3),
+                                          spreadRadius: 1,
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    padding: const EdgeInsets.all(12),
+                                    child: const Icon(Icons.camera_alt,
+                                        color: Colors.white, size: 20),
+                                  ),
+                                ),
+                                // Delete button (only show if there's an image)
+                                if (_hasImage())
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: _deleteImage,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color:
+                                                  Colors.grey.withOpacity(0.3),
+                                              spreadRadius: 1,
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        padding: const EdgeInsets.all(8),
+                                        child: const Icon(Icons.delete,
+                                            color: Colors.white, size: 16),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          l10n.tapToChangePhoto,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  // Form Fields Section
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          spreadRadius: 1,
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF667EEA),
+                                    Color(0xFF764BA2)
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.person,
+                                  color: Colors.white, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              l10n.studentInformation,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        _inputField(
+                            icon: Icons.person_outline,
+                            label: l10n.name,
+                            controller: nameController),
+                        _morningClassDropdownField(),
+                        _eveningClassDropdownField(),
+                        _inputField(
+                            icon: Icons.home_outlined,
+                            label: l10n.address,
+                            controller: addressController),
+                        _inputField(
+                            icon: Icons.phone_outlined,
+                            label: l10n.phoneNumber,
+                            controller: phoneController),
+                        _inputField(
+                            icon: Icons.school_outlined,
+                            label: l10n.studyStatus,
+                            controller: studyStatusController),
+                        _inputField(
+                            icon: Icons.woman,
+                            label: l10n.motherName,
+                            controller: motherNameController),
+                        _inputField(
+                            icon: Icons.man,
+                            label: l10n.fatherName,
+                            controller: fatherNameController),
+                        _inputField(
+                            icon: Icons.location_on_outlined,
+                            label: l10n.placeOfBirth,
+                            controller: placeOfBirthController),
+                        _inputField(
+                            icon: Icons.cake_outlined,
+                            label: l10n.dateOfBirth,
+                            controller: TextEditingController(
+                                text: dateOfBirth != null
+                                    ? dateOfBirth!
+                                        .toIso8601String()
+                                        .split('T')
+                                        .first
+                                    : ''),
+                            readOnly: true,
+                            onTap: _selectDate),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  // Save Button
+                  Container(
+                    width: double.infinity,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF667EEA).withOpacity(0.3),
+                          spreadRadius: 1,
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: loading ? null : _saveStudent,
+                      child: loading
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isEditing ? Icons.update : Icons.save,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  isEditing ? l10n.updateStudent : l10n.save,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

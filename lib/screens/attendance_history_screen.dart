@@ -27,6 +27,13 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     final user = await AuthService().getCurrentUser();
     if (user != null) {
       teacherId = user.objectId;
+
+      // Apply same teacher ID mapping as used in attendance recording
+      if (teacherId == 'MpKBC2x5z6') {
+        print('Mapping teacher ID for history: $teacherId -> 0VigufBHQT');
+        teacherId = '0VigufBHQT';
+      }
+
       await _fetchAttendanceHistory();
     } else {
       setState(() => isLoading = false);
@@ -39,6 +46,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     setState(() => isLoading = true);
 
     try {
+      // Fetch attendance history for selected date
       final history = await AttendanceService.getTeacherAttendanceHistory(
         teacherId: teacherId!,
         startDate:
@@ -47,11 +55,15 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
             selectedDate.year, selectedDate.month, selectedDate.day + 1),
       );
 
+      print(
+          'Fetched ${history.length} attendance records for ${_formatDate(selectedDate)}');
+
       setState(() {
         attendanceHistory = history;
         isLoading = false;
       });
     } catch (e) {
+      print('Error fetching attendance history: $e');
       setState(() => isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -77,58 +89,147 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     }
   }
 
+  Future<void> _viewAllRecords() async {
+    if (teacherId == null) return;
+
+    setState(() => isLoading = true);
+
+    try {
+      // Fetch last 30 days of records
+      final endDate = DateTime.now();
+      final startDate = endDate.subtract(const Duration(days: 30));
+
+      final history = await AttendanceService.getTeacherAttendanceHistory(
+        teacherId: teacherId!,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
+      print('Fetched ${history.length} attendance records for last 30 days');
+
+      setState(() {
+        attendanceHistory = history;
+        selectedDate = DateTime.now(); // Reset to today
+        isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('Showing ${history.length} records from last 30 days'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error fetching all attendance records: $e');
+      setState(() => isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading all records: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Attendance History'),
+        title: const Text('QR Attendance History'),
         backgroundColor: Colors.blue,
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today),
             onPressed: _selectDate,
+            tooltip: 'Select Date',
+          ),
+          IconButton(
+            icon: const Icon(Icons.view_list),
+            onPressed: _viewAllRecords,
+            tooltip: 'View All Records',
           ),
         ],
       ),
       body: Column(
         children: [
-          // Date selector
+          // Header with date and stats
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             color: Colors.blue.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Selected Date',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'QR Scan Records',
+                          style: TextStyle(
+                            color: Colors.blue.shade700,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _formatDate(selectedDate),
+                          style: TextStyle(
+                            color: Colors.blue.shade800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      _formatDate(selectedDate),
-                      style: TextStyle(
-                        color: Colors.blue.shade800,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${attendanceHistory.length} Records',
+                          style: TextStyle(
+                            color: Colors.blue.shade700,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (attendanceHistory.isNotEmpty)
+                          Text(
+                            '${attendanceHistory.where((r) => r.status == 'On Time').length} On Time, ${attendanceHistory.where((r) => r.status == 'Late').length} Late',
+                            style: TextStyle(
+                              color: Colors.blue.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
-                ElevatedButton.icon(
-                  onPressed: _selectDate,
-                  icon: const Icon(Icons.calendar_today, size: 18),
-                  label: const Text('Change Date'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                  ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _selectDate,
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: const Text('Change Date'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _viewAllRecords,
+                      icon: const Icon(Icons.view_list, size: 18),
+                      label: const Text('Last 30 Days'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

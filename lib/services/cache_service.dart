@@ -8,6 +8,11 @@ class CacheService {
   static const String userBoxName = 'userBox';
   static const String settingsBoxName = 'settingsBox';
   static const String enrollmentBoxName = 'enrollmentBox';
+  static const String schoolBoxName = 'schoolBox'; // Add school cache box
+  static const String dashboardBoxName =
+      'dashboardBox'; // Add dashboard stats cache box
+  static const String timetableBoxName =
+      'timetableBox'; // Add timetable cache box
 
   // Call once at app startup
   static Future<void> init() async {
@@ -18,6 +23,9 @@ class CacheService {
     await Hive.openBox(userBoxName);
     await Hive.openBox(settingsBoxName);
     await Hive.openBox(enrollmentBoxName);
+    await Hive.openBox(schoolBoxName); // Add school box
+    await Hive.openBox(dashboardBoxName); // Add dashboard box
+    await Hive.openBox(timetableBoxName); // Add timetable box
   }
 
   // Class List
@@ -68,22 +76,56 @@ class CacheService {
   static Future<void> saveTeacherList(
       List<Map<String, dynamic>> teacherList) async {
     final box = Hive.box(teacherBoxName);
-    await box.put('teacherList', teacherList);
+
+    // Save teacher data with timestamp for freshness validation
+    final cacheData = {
+      'teacherList': teacherList,
+      'lastUpdated': DateTime.now().toIso8601String(),
+    };
+
+    await box.put('teacherData', cacheData);
   }
 
   static List<Map<String, dynamic>>? getTeacherList() {
     final box = Hive.box(teacherBoxName);
-    final data = box.get('teacherList');
-    if (data != null) {
-      return List<Map<String, dynamic>>.from(
-          (data as List).map((e) => Map<String, dynamic>.from(e)));
+    final cacheData = box.get('teacherData');
+
+    if (cacheData != null && cacheData is Map) {
+      // Check cache freshness (5 minutes)
+      final lastUpdatedStr = cacheData['lastUpdated'] as String?;
+      if (lastUpdatedStr != null) {
+        final lastUpdated = DateTime.parse(lastUpdatedStr);
+        final now = DateTime.now();
+        final difference = now.difference(lastUpdated).inMinutes;
+
+        if (difference > 5) {
+          print(
+              'DEBUG: Teacher cache is stale (${difference} minutes old), clearing...');
+          return null; // Return null to force fresh data fetch
+        }
+      }
+
+      final teacherList = cacheData['teacherList'];
+      if (teacherList != null) {
+        return List<Map<String, dynamic>>.from(
+            (teacherList as List).map((e) => Map<String, dynamic>.from(e)));
+      }
     }
+
+    // Fallback: check old cache format for backward compatibility
+    final oldData = box.get('teacherList');
+    if (oldData != null) {
+      print('DEBUG: Found old cache format, will refresh...');
+      return null; // Force refresh for old format
+    }
+
     return null;
   }
 
   static Future<void> clearTeacherList() async {
     final box = Hive.box(teacherBoxName);
-    await box.delete('teacherList');
+    await box.delete('teacherData');
+    await box.delete('teacherList'); // Also clear old format
   }
 
   // Attendance History
@@ -260,6 +302,12 @@ class CacheService {
       if (!Hive.isBoxOpen(enrollmentBoxName)) {
         await Hive.openBox(enrollmentBoxName);
       }
+      if (!Hive.isBoxOpen(schoolBoxName)) {
+        await Hive.openBox(schoolBoxName);
+      }
+      if (!Hive.isBoxOpen(dashboardBoxName)) {
+        await Hive.openBox(dashboardBoxName);
+      }
     } catch (e) {
       print('Error initializing cache boxes: $e');
     }
@@ -275,6 +323,9 @@ class CacheService {
       await Hive.box(userBoxName).clear();
       await Hive.box(settingsBoxName).clear();
       await Hive.box(enrollmentBoxName).clear();
+      await Hive.box(schoolBoxName).clear();
+      await Hive.box(dashboardBoxName).clear();
+      await Hive.box(timetableBoxName).clear();
     } catch (e) {
       print('Error clearing cache: $e');
     }
@@ -301,5 +352,215 @@ class CacheService {
   Future<void> clear(String key) async {
     final box = Hive.box(CacheService.attendanceBoxName);
     await box.delete(key);
+  }
+
+  // School Information Cache
+  static Future<void> saveSchoolInfo({
+    required String name,
+    String? logoUrl,
+    String? address,
+    String? phone,
+    String? email,
+  }) async {
+    final box = Hive.box(schoolBoxName);
+    final schoolData = {
+      'name': name,
+      'logoUrl': logoUrl,
+      'address': address,
+      'phone': phone,
+      'email': email,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+    await box.put('schoolInfo', schoolData);
+  }
+
+  static Map<String, dynamic>? getSchoolInfo() {
+    final box = Hive.box(schoolBoxName);
+    final data = box.get('schoolInfo');
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> clearSchoolInfo() async {
+    final box = Hive.box(schoolBoxName);
+    await box.delete('schoolInfo');
+  }
+
+  // Dashboard Statistics Cache
+  static Future<void> saveDashboardStats({
+    required int studentCount,
+    required int teacherCount,
+    required int classCount,
+  }) async {
+    final box = Hive.box(dashboardBoxName);
+    final statsData = {
+      'studentCount': studentCount,
+      'teacherCount': teacherCount,
+      'classCount': classCount,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+    await box.put('dashboardStats', statsData);
+  }
+
+  static Map<String, dynamic>? getDashboardStats() {
+    final box = Hive.box(dashboardBoxName);
+    final data = box.get('dashboardStats');
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> clearDashboardStats() async {
+    final box = Hive.box(dashboardBoxName);
+    await box.delete('dashboardStats');
+  }
+
+  // Timetable Cache Methods
+  static Future<void> saveTimetableData({
+    required String teacherId,
+    required String classId,
+    required Map<String, Map<String, String>> morningSchedule,
+    required Map<String, Map<String, String>> afternoonSchedule,
+    required List<Map<String, dynamic>> teachers,
+    required List<Map<String, dynamic>> classes,
+  }) async {
+    final box = Hive.box(timetableBoxName);
+    final cacheKey = '${teacherId}_$classId';
+
+    final timetableData = {
+      'teacherId': teacherId,
+      'classId': classId,
+      'morningSchedule': morningSchedule,
+      'afternoonSchedule': afternoonSchedule,
+      'teachers': teachers,
+      'classes': classes,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    await box.put(cacheKey, timetableData);
+  }
+
+  static Map<String, dynamic>? getTimetableData({
+    required String teacherId,
+    required String classId,
+  }) {
+    final box = Hive.box(timetableBoxName);
+    final cacheKey = '${teacherId}_$classId';
+    final data = box.get(cacheKey);
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> saveTeachersAndClasses({
+    required List<Map<String, dynamic>> teachers,
+    required List<Map<String, dynamic>> classes,
+  }) async {
+    final box = Hive.box(timetableBoxName);
+    final data = {
+      'teachers': teachers,
+      'classes': classes,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+    await box.put('teachers_classes', data);
+  }
+
+  static Map<String, dynamic>? getTeachersAndClasses() {
+    final box = Hive.box(timetableBoxName);
+    final data = box.get('teachers_classes');
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> clearTimetableCache() async {
+    final box = Hive.box(timetableBoxName);
+    await box.clear();
+  }
+
+  static Future<void> clearSpecificTimetable({
+    required String teacherId,
+    required String classId,
+  }) async {
+    final box = Hive.box(timetableBoxName);
+    final cacheKey = '${teacherId}_$classId';
+    await box.delete(cacheKey);
+  }
+
+  // Teacher Detail Cache Methods
+  static Future<void> saveTeacherDetail({
+    required String teacherId,
+    required Map<String, dynamic> teacherData,
+    required Map<String, dynamic> credentialsData,
+  }) async {
+    final box = Hive.box(teacherBoxName);
+    final cacheKey = 'detail_$teacherId';
+
+    final detailData = {
+      'teacherData': teacherData,
+      'credentialsData': credentialsData,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    await box.put(cacheKey, detailData);
+  }
+
+  static Map<String, dynamic>? getTeacherDetail({required String teacherId}) {
+    final box = Hive.box(teacherBoxName);
+    final cacheKey = 'detail_$teacherId';
+    final data = box.get(cacheKey);
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> saveTeacherCredentials({
+    required String teacherId,
+    required String? username,
+    required String? password,
+    required bool hasUserAccount,
+  }) async {
+    final box = Hive.box(teacherBoxName);
+    final cacheKey = 'credentials_$teacherId';
+
+    final credentialsData = {
+      'username': username,
+      'password': password,
+      'hasUserAccount': hasUserAccount,
+      'lastUpdated': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    await box.put(cacheKey, credentialsData);
+  }
+
+  static Map<String, dynamic>? getTeacherCredentials(
+      {required String teacherId}) {
+    final box = Hive.box(teacherBoxName);
+    final cacheKey = 'credentials_$teacherId';
+    final data = box.get(cacheKey);
+    if (data != null) {
+      return Map<String, dynamic>.from(data);
+    }
+    return null;
+  }
+
+  static Future<void> clearTeacherDetail({required String teacherId}) async {
+    final box = Hive.box(teacherBoxName);
+    await box.delete('detail_$teacherId');
+    await box.delete('credentials_$teacherId');
+  }
+
+  // Check if cached data is fresh (less than 5 minutes old)
+  static bool isCacheFresh(int? lastUpdated, {int maxAgeMinutes = 5}) {
+    if (lastUpdated == null) return false;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ageMinutes = (now - lastUpdated) / (1000 * 60);
+    return ageMinutes < maxAgeMinutes;
   }
 }

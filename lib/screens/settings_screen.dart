@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
+import 'package:provider/provider.dart';
 import '../services/class_service.dart';
 import '../services/cache_service.dart';
+import '../services/language_service.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:hive/hive.dart';
-import 'login_page.dart';
 import 'school_management_screen.dart';
 import 'teacher_dashboard.dart'; // Import for teacher management
 import 'student_dashboard.dart'; // Import for student dashboard
+import 'change_password_screen.dart'; // Import for change password
+import 'edit_profile_screen.dart'; // Import for edit profile
+import 'teacher_detail_screen.dart';
+import 'login_page.dart'; // Import for login page
+import '../models/teacher.dart'; // Import for teacher detail screen
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -40,11 +47,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _fetchUserRole() async {
     try {
       final user = await ParseUser.currentUser();
-      final fetchedRole = user?.get<String>('role');
-      if (mounted) {
-        setState(() {
-          userRole = fetchedRole;
-        });
+      if (user != null) {
+        final fetchedRole = user.get<String>('role');
+        if (mounted) {
+          setState(() {
+            userRole = fetchedRole;
+          });
+        }
       }
     } catch (e) {
       print('Error fetching user role: $e');
@@ -116,201 +125,223 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : error.isNotEmpty
-              ? Center(
-                  child: Text(error, style: const TextStyle(color: Colors.red)))
-              : CustomScrollView(
-                  slivers: [
-                    // Custom App Bar with gradient
-                    SliverAppBar(
-                      expandedHeight: 280,
-                      floating: false,
-                      pinned: true,
-                      automaticallyImplyLeading: false,
-                      flexibleSpace: FlexibleSpaceBar(
-                        background: Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Color(0xFF4A90E2),
-                                Color(0xFF7B68EE),
-                                Color(0xFF9B59B6),
-                              ],
-                            ),
-                          ),
-                          child: SafeArea(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const SizedBox(height: 20),
-                                // Profile Image with beautiful shadow
-                                Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.2),
-                                        blurRadius: 20,
-                                        offset: const Offset(0, 10),
+    final l10n = AppLocalizations.of(context)!;
+
+    return Consumer<LanguageService>(
+      builder: (context, languageService, child) {
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8F9FE),
+          body: loading
+              ? const Center(child: CircularProgressIndicator())
+              : error.isNotEmpty
+                  ? Center(
+                      child: Text(l10n.noUserFound,
+                          style: const TextStyle(color: Colors.red)))
+                  : CustomScrollView(
+                      slivers: [
+                        // Custom App Bar with gradient and language switcher
+                        SliverAppBar(
+                          expandedHeight: 280,
+                          floating: false,
+                          pinned: true,
+                          automaticallyImplyLeading: false,
+                          flexibleSpace: FlexibleSpaceBar(
+                            background: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xFF4A90E2),
+                                    Color(0xFF7B68EE),
+                                    Color(0xFF9B59B6),
+                                  ],
+                                ),
+                              ),
+                              child: SafeArea(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(height: 20),
+                                    // Profile Image with beautiful shadow
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color:
+                                                Colors.black.withOpacity(0.2),
+                                            blurRadius: 20,
+                                            offset: const Offset(0, 10),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 50,
-                                    backgroundColor: Colors.white,
-                                    child: CircleAvatar(
-                                      radius: 46,
-                                      backgroundImage: photoBytes != null
-                                          ? MemoryImage(photoBytes!)
-                                          : (photoUrl != null &&
-                                                  photoUrl!.isNotEmpty
-                                              ? NetworkImage(photoUrl!)
-                                              : null),
-                                      child: (photoBytes == null &&
-                                              (photoUrl == null ||
-                                                  photoUrl!.isEmpty))
-                                          ? const Icon(Icons.person,
-                                              size: 50, color: Colors.grey)
-                                          : null,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                // Name with beautiful typography
-                                Text(
-                                  name ?? '',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    shadows: [
-                                      Shadow(
-                                        offset: Offset(0, 2),
-                                        blurRadius: 4,
-                                        color: Colors.black26,
+                                      child: CircleAvatar(
+                                        radius: 50,
+                                        backgroundColor: Colors.white,
+                                        child: CircleAvatar(
+                                          radius: 46,
+                                          backgroundImage: photoBytes != null
+                                              ? MemoryImage(photoBytes!)
+                                              : (photoUrl != null &&
+                                                      photoUrl!.isNotEmpty
+                                                  ? NetworkImage(photoUrl!)
+                                                  : null),
+                                          child: (photoBytes == null &&
+                                                  (photoUrl == null ||
+                                                      photoUrl!.isEmpty))
+                                              ? const Icon(Icons.person,
+                                                  size: 50, color: Colors.grey)
+                                              : null,
+                                        ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                // Username with subtle styling
-                                Text(
-                                  username ?? '',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                // Role badge
-                                if (role != null && role!.isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                          color: Colors.white.withOpacity(0.3)),
                                     ),
-                                    child: Text(
-                                      role!.toUpperCase(),
+                                    const SizedBox(height: 16),
+                                    // Name with beautiful typography
+                                    Text(
+                                      name ?? '',
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 1,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        shadows: [
+                                          Shadow(
+                                            offset: Offset(0, 2),
+                                            blurRadius: 4,
+                                            color: Colors.black26,
+                                          ),
+                                        ],
                                       ),
                                     ),
+                                    const SizedBox(height: 8),
+                                    // Username with subtle styling
+                                    Text(
+                                      username ?? '',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Role badge
+                                    if (role != null && role!.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.2),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                          border: Border.all(
+                                              color: Colors.white
+                                                  .withOpacity(0.3)),
+                                        ),
+                                        child: Text(
+                                          role!.toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: 1,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          backgroundColor: Colors.transparent,
+                        ),
+                        // Settings Content
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.settings,
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2D3748),
                                   ),
+                                ),
+                                const SizedBox(height: 20),
+                                // Settings Cards
+                                _buildSettingsCard([
+                                  _buildSettingsTile(
+                                    Icons.person_outline,
+                                    l10n.editProfile,
+                                    l10n.updatePersonalInfo,
+                                    const Color(0xFF4A90E2),
+                                  ),
+                                  // Hide change password for teachers
+                                  if (userRole != 'teacher')
+                                    _buildSettingsTile(
+                                      Icons.lock_outline,
+                                      l10n.changePassword,
+                                      l10n.updatePassword,
+                                      const Color(0xFF10B981),
+                                    ),
+                                ]),
+                                const SizedBox(height: 16),
+                                _buildSettingsCard([
+                                  _buildSettingsTile(
+                                    Icons.school,
+                                    l10n.students,
+                                    l10n.viewManageStudents,
+                                    const Color(0xFFFF6B35),
+                                  ),
+                                  // Only show teacher management for admin users
+                                  if (userRole == 'admin')
+                                    _buildSettingsTile(
+                                      Icons.people_outline,
+                                      l10n.manageTeacher,
+                                      l10n.addEditRemoveTeachers,
+                                      const Color(0xFF8B5CF6),
+                                    ),
+                                  // Only show school management for admin users
+                                  if (userRole == 'admin')
+                                    _buildSettingsTile(
+                                      Icons.school_outlined,
+                                      l10n.schoolManagement,
+                                      l10n.configureSchoolSettings,
+                                      const Color(0xFFEF4444),
+                                    ),
+                                ]),
+                                const SizedBox(height: 16),
+                                _buildSettingsCard([
+                                  _buildSettingsTile(
+                                    Icons.language,
+                                    l10n.language,
+                                    l10n.changeAppLanguage,
+                                    const Color(0xFF06B6D4),
+                                  ),
+                                  _buildSettingsTile(
+                                    Icons.logout,
+                                    l10n.logout,
+                                    l10n.signOutAccount,
+                                    const Color(0xFF6B7280),
+                                  ),
+                                ]),
+                                const SizedBox(
+                                    height: 100), // Space for bottom navigation
                               ],
                             ),
                           ),
                         ),
-                      ),
-                      backgroundColor: Colors.transparent,
+                      ],
                     ),
-                    // Settings Content
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Settings',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF2D3748),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            // Settings Cards
-                            _buildSettingsCard([
-                              _buildSettingsTile(
-                                Icons.person_outline,
-                                'Edit Profile',
-                                'Update your personal information',
-                                const Color(0xFF4A90E2),
-                              ),
-                              _buildSettingsTile(
-                                Icons.lock_outline,
-                                'Change Password',
-                                'Update your account password',
-                                const Color(0xFF10B981),
-                              ),
-                            ]),
-                            const SizedBox(height: 16),
-                            _buildSettingsCard([
-                              _buildSettingsTile(
-                                Icons.school,
-                                'Students',
-                                'View and manage students',
-                                const Color(0xFFFF6B35),
-                              ),
-                              _buildSettingsTile(
-                                Icons.people_outline,
-                                'Manage Teacher',
-                                'Add, edit, or remove teachers',
-                                const Color(0xFF8B5CF6),
-                              ),
-                              _buildSettingsTile(
-                                Icons.school_outlined,
-                                'School Management',
-                                'Configure school settings',
-                                const Color(0xFFEF4444),
-                              ),
-                            ]),
-                            const SizedBox(height: 16),
-                            _buildSettingsCard([
-                              _buildSettingsTile(
-                                Icons.logout,
-                                'Logout',
-                                'Sign out of your account',
-                                const Color(0xFF6B7280),
-                              ),
-                            ]),
-                            const SizedBox(
-                                height: 100), // Space for bottom navigation
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-      // Add bottom navigation with Settings selected (index 3)
-      bottomNavigationBar: AppBottomNavigation(
-        currentIndex: 3, // Settings tab
-        userRole: userRole, // Pass userRole for proper access control
-      ),
+          // Add bottom navigation with Settings selected (index 3)
+          bottomNavigationBar: AppBottomNavigation(
+            currentIndex: 3, // Settings tab
+            userRole: userRole, // Pass userRole for proper access control
+          ),
+        );
+      },
     );
   }
 
@@ -383,7 +414,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _handleSettingsTap(String title) async {
-    if (title == 'Logout') {
+    final l10n = AppLocalizations.of(context)!;
+
+    if (title == l10n.logout) {
       // Clear session info from Hive and Parse
       final box = await Hive.openBox('userSessionBox');
       await box.delete('sessionToken');
@@ -408,7 +441,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
     // Navigate to Students Screen
-    if (title == 'Students') {
+    if (title == l10n.students) {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -416,45 +449,201 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
-    // Navigate to School Management Screen
-    if (title == 'School Management') {
+    // Navigate to School Management Screen (Admin only)
+    if (title == l10n.schoolManagement) {
+      if (userRole == 'admin') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const SchoolManagementScreen(),
+          ),
+        );
+      } else {
+        // Show unauthorized access message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Access denied: Admin privileges required.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+    // Navigate to Manage Teacher Screen (Admin only)
+    if (title == l10n.manageTeacher) {
+      if (userRole == 'admin') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TeacherDashboard(),
+          ),
+        );
+      } else {
+        // Show unauthorized access message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Access denied: Admin privileges required.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+    // Navigate to Edit Profile Screen (or Teacher Detail for teachers)
+    if (title == l10n.editProfile) {
+      if (userRole == 'teacher') {
+        // For teachers, show their own teacher detail screen
+        _navigateToTeacherDetail();
+      } else {
+        // For admins/students, show regular edit profile
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const EditProfileScreen(),
+          ),
+        );
+      }
+    }
+    // Navigate to Change Password Screen
+    if (title == l10n.changePassword) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => const SchoolManagementScreen(),
+          builder: (_) => const ChangePasswordScreen(),
         ),
       );
     }
-    // Navigate to Manage Teacher Screen
-    if (title == 'Manage Teacher') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const TeacherDashboard(),
-        ),
-      );
+    // Handle Language Selection
+    if (title == l10n.language) {
+      _showLanguageDialog();
     }
-    // TODO: Implement navigation for other settings
   }
-}
 
-class EditProfileScreen extends StatefulWidget {
-  const EditProfileScreen({super.key});
+  void _showLanguageDialog() {
+    final l10n = AppLocalizations.of(context)!;
 
-  @override
-  State<EditProfileScreen> createState() => _EditProfileScreenState();
-}
-
-class _EditProfileScreenState extends State<EditProfileScreen> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-      ),
-      body: const Center(
-        child: Text('Edit Profile Screen'),
-      ),
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Consumer<LanguageService>(
+          builder: (context, languageService, child) {
+            return AlertDialog(
+              title: Text(l10n.selectLanguage),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Text('🇺🇸', style: TextStyle(fontSize: 24)),
+                    title: Text(l10n.english),
+                    trailing: languageService.currentLocale.languageCode == 'en'
+                        ? const Icon(Icons.check, color: Colors.blue)
+                        : null,
+                    onTap: () {
+                      languageService.changeLanguage(const Locale('en'));
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇰🇭', style: TextStyle(fontSize: 24)),
+                    title: Text(l10n.khmer),
+                    trailing: languageService.currentLocale.languageCode == 'km'
+                        ? const Icon(Icons.check, color: Colors.blue)
+                        : null,
+                    onTap: () {
+                      languageService.changeLanguage(const Locale('km'));
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(l10n.cancel),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
+  }
+
+  void _navigateToTeacherDetail() async {
+    try {
+      // Get current user
+      final ParseUser? currentUser = await ParseUser.currentUser();
+      if (currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.loginFailed)),
+        );
+        return;
+      }
+
+      // Try multiple query strategies to find the teacher record
+      ParseObject? teacherObject;
+
+      // Strategy 1: Query by user pointer reference
+      QueryBuilder<ParseObject> query1 =
+          QueryBuilder<ParseObject>(ParseObject('Teacher'));
+      query1.whereEqualTo('user', currentUser);
+      ParseResponse response1 = await query1.query();
+
+      if (response1.success &&
+          response1.results != null &&
+          response1.results!.isNotEmpty) {
+        teacherObject = response1.results!.first;
+      } else {
+        // Strategy 2: Query by userId string
+        QueryBuilder<ParseObject> query2 =
+            QueryBuilder<ParseObject>(ParseObject('Teacher'));
+        query2.whereEqualTo('userId', currentUser.objectId);
+        ParseResponse response2 = await query2.query();
+
+        if (response2.success &&
+            response2.results != null &&
+            response2.results!.isNotEmpty) {
+          teacherObject = response2.results!.first;
+        } else {
+          // Strategy 3: Query by username
+          QueryBuilder<ParseObject> query3 =
+              QueryBuilder<ParseObject>(ParseObject('Teacher'));
+          query3.whereEqualTo('username', currentUser.username);
+          ParseResponse response3 = await query3.query();
+
+          if (response3.success &&
+              response3.results != null &&
+              response3.results!.isNotEmpty) {
+            teacherObject = response3.results!.first;
+          }
+        }
+      }
+
+      if (teacherObject != null) {
+        // Convert ParseObject to Teacher model
+        final Map<String, dynamic> teacherData = teacherObject.toJson();
+        final Teacher teacher = Teacher.fromParseObject(teacherData);
+
+        // Navigate to teacher detail screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TeacherDetailScreen(teacher: teacher),
+          ),
+        );
+      } else {
+        // Teacher record not found - show detailed error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Teacher profile not found. Please contact administrator.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error navigating to teacher detail: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.unknownError)),
+      );
+    }
   }
 }

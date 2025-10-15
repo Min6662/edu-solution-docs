@@ -1,13 +1,15 @@
 {
-    "name": "flutter_application_1",
-    "short_name": "flutter_application_1",
+    "name": "Edu Solution - School Management System",
+    "short_name": "Edu Solution",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#667eea",
+    "theme_color": "#667eea",
+    "description": "Comprehensive school management system for students, teachers, and administrators. Streamline education with our modern, user-friendly platform.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "categories": ["education", "productivity", "business"],
+    "lang": "en",
     "icons": [
         {
             "src": "icons/Icon-192.png",

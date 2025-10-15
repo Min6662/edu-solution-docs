@@ -92,6 +92,14 @@ class ClassService {
           .map((stu) => {
                 'objectId': stu.get<String>('objectId'),
                 'name': stu.get<String>('name'),
+                'grade': stu.get<String>('grade'),
+                'address': stu.get<String>('address'),
+                'phoneNumber': stu.get<String>('phoneNumber'),
+                'studyStatus': stu.get<String>('studyStatus'),
+                'motherName': stu.get<String>('motherName'),
+                'fatherName': stu.get<String>('fatherName'),
+                'placeOfBirth': stu.get<String>('placeOfBirth'),
+                'dateOfBirth': stu.get<String>('dateOfBirth'),
                 'photo': stu.get<String>('photo'),
                 'yearsOfExperience': stu.get<int>('yearsOfExperience') ?? 0,
                 'rating': stu.get<double>('rating') ?? 4.5,
@@ -117,6 +125,14 @@ class ClassService {
           .map((stu) => {
                 'objectId': stu.get<String>('objectId'),
                 'name': stu.get<String>('name'),
+                'grade': stu.get<String>('grade'),
+                'address': stu.get<String>('address'),
+                'phoneNumber': stu.get<String>('phoneNumber'),
+                'studyStatus': stu.get<String>('studyStatus'),
+                'motherName': stu.get<String>('motherName'),
+                'fatherName': stu.get<String>('fatherName'),
+                'placeOfBirth': stu.get<String>('placeOfBirth'),
+                'dateOfBirth': stu.get<String>('dateOfBirth'),
                 'photo': stu.get<String>('photo'),
                 'yearsOfExperience': stu.get<int>('yearsOfExperience') ?? 0,
                 'rating': stu.get<double>('rating') ?? 4.5,
@@ -152,29 +168,67 @@ class ClassService {
 
   // Fetch teacher list, using cache if available
   static Future<List<Map<String, dynamic>>> getTeacherList() async {
+    print('DEBUG: ClassService.getTeacherList() called');
+
     final cached = CacheService.getTeacherList();
     if (cached != null && cached.isNotEmpty) {
-      return cached;
+      print(
+          'DEBUG: Found cached data with ${cached.length} teachers, validating...');
+
+      // Validate cached data - check if first teacher has essential fields
+      final firstTeacher = cached.first;
+      final hasValidData = firstTeacher['fullName'] != null &&
+          firstTeacher['objectId'] != null &&
+          firstTeacher['fullName'].toString().isNotEmpty;
+
+      if (hasValidData) {
+        print(
+            'DEBUG: Cache validation passed, returning ${cached.length} teachers from cache');
+        return cached;
+      } else {
+        print(
+            'DEBUG: Cache validation failed - corrupted data detected, clearing cache and fetching fresh data');
+        await CacheService.clearTeacherList();
+      }
     }
+
+    print('DEBUG: No cache found, fetching fresh teacher data from Parse...');
     final query = QueryBuilder<ParseObject>(ParseObject('Teacher'));
     final response = await query.query();
+
     if (response.success && response.results != null) {
-      final teacherList = response.results!
-          .map((tch) => {
-                'objectId': tch.get<String>('objectId'),
-                'fullName': tch.get<String>('fullName'),
-                'subject': tch.get<String>('subject'),
-                'gender': tch.get<String>('gender'),
-                'photo': tch.get<String>('photo'),
-                'yearsOfExperience': tch.get<int>('yearsOfExperience') ?? 0,
-                'rating': (tch.get<num>('rating') ?? 0.0).toDouble(),
-                'ratingCount': tch.get<int>('ratingCount') ?? 0,
-                'hourlyRate': (tch.get<num>('hourlyRate') ?? 0.0).toDouble(),
-              })
-          .toList();
+      print(
+          'DEBUG: Successfully fetched ${response.results!.length} teachers from Parse');
+
+      final teacherList = response.results!.map((tch) {
+        final teacherData = {
+          'objectId': tch.objectId, // Fix: use objectId property directly
+          'fullName': tch.get<String>('fullName') ?? '',
+          'subject': tch.get<String>('subject') ?? '',
+          'gender': tch.get<String>('gender') ?? '',
+          'photo': tch.get<String>('photo') ?? '',
+          'photoUrl': tch.get<String>('photoUrl') ?? '', // Add missing photoUrl
+          'yearsOfExperience': tch.get<int>('yearsOfExperience') ?? 0,
+          'rating': (tch.get<num>('rating') ?? 0.0).toDouble(),
+          'ratingCount': tch.get<int>('ratingCount') ?? 0,
+          'hourlyRate': (tch.get<num>('hourlyRate') ?? 0.0).toDouble(),
+          'Address': tch.get<String>('Address') ?? '', // Add missing fields
+          'address': tch.get<String>('address') ?? '',
+          'createdAt': tch.createdAt?.toIso8601String(),
+          'updatedAt': tch.updatedAt?.toIso8601String(),
+        };
+
+        print(
+            'DEBUG: Processed teacher - Name: ${teacherData['fullName']}, Subject: ${teacherData['subject']}, Experience: ${teacherData['yearsOfExperience']} years');
+        return teacherData;
+      }).toList();
+
       await CacheService.saveTeacherList(teacherList);
+      print('DEBUG: Saved ${teacherList.length} teachers to cache');
       return teacherList;
     }
+
+    print('DEBUG: Failed to fetch teachers from Parse');
     return [];
   }
 

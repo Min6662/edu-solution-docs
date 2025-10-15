@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'student_attendance_history_screen.dart';
 
 class StudentAttendanceScreen extends StatefulWidget {
@@ -277,10 +278,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   }
 
   Future<void> _submitAttendance() async {
+    final localizations = AppLocalizations.of(context)!;
+
     if (selectedClassId == null || students.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a class and ensure students are loaded'),
+        SnackBar(
+          content: Text(localizations.pleaseSelectClassToViewStudents),
           backgroundColor: Colors.red,
         ),
       );
@@ -319,17 +322,19 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   }
 
   Future<void> _proceedWithSubmission() async {
+    final localizations = AppLocalizations.of(context)!;
+
     // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return const AlertDialog(
+        return AlertDialog(
           content: Row(
             children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 20),
-              Text('Saving attendance...'),
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Text(localizations.savingAttendance),
             ],
           ),
         );
@@ -449,15 +454,19 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       Color backgroundColor;
 
       if (errorCount == 0) {
-        message = 'Attendance saved successfully!\n';
-        if (savedCount > 0) message += '$savedCount new records created. ';
-        if (updatedCount > 0) message += '$updatedCount records updated.';
+        message = localizations.attendanceSavedSuccessfully;
+        if (savedCount > 0)
+          message += '\n$savedCount ${localizations.newRecordsCreated}';
+        if (updatedCount > 0)
+          message += '\n$updatedCount ${localizations.recordsUpdated}';
         backgroundColor = Colors.green;
       } else {
-        message = 'Attendance saved with some errors.\n';
-        if (savedCount > 0) message += '$savedCount saved, ';
-        if (updatedCount > 0) message += '$updatedCount updated, ';
-        message += '$errorCount errors.\nCheck console for details.';
+        message = localizations.attendanceSavedWithErrors;
+        if (savedCount > 0) message += '\n$savedCount ${localizations.saved}';
+        if (updatedCount > 0)
+          message += '\n$updatedCount ${localizations.updated}';
+        message +=
+            '\n$errorCount ${localizations.errors}\n${localizations.checkConsoleForDetails}';
         backgroundColor = Colors.orange;
       }
 
@@ -468,25 +477,20 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           duration: const Duration(seconds: 4),
           action: errorCount > 0
               ? SnackBarAction(
-                  label: 'Details',
+                  label: localizations.details,
                   textColor: Colors.white,
                   onPressed: () {
                     showDialog(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('Error Details'),
+                        title: Text(localizations.errorDetails),
                         content: Text(
-                            'There were $errorCount errors while saving attendance.\n\n'
-                            'This could be due to:\n'
-                            '• Network connectivity issues\n'
-                            '• Missing student data\n'
-                            '• Database permission issues\n'
-                            '• Invalid student IDs\n\n'
-                            'Check the console logs for detailed error messages.'),
+                            '${localizations.errorsWhileSaving(errorCount)}\n\n'
+                            '${localizations.errorReasons}'),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('OK'),
+                            child: Text(localizations.ok),
                           ),
                         ],
                       ),
@@ -512,7 +516,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error saving attendance: $e'),
+          content: Text(localizations.errorSavingAttendance(e.toString())),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 4),
         ),
@@ -523,15 +527,17 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Attendance'),
+        title: Text(localizations.attendanceTitle),
         backgroundColor: Colors.pink,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            tooltip: 'Refresh Student List',
+            tooltip: localizations.refreshStudentList,
             onPressed: selectedClassId == null
                 ? null
                 : () async {
@@ -542,7 +548,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.history, color: Colors.white),
-            tooltip: 'View History',
+            tooltip: localizations.viewHistory,
             onPressed: () {
               try {
                 Navigator.push(
@@ -555,7 +561,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 );
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Navigation error: $e')),
+                  SnackBar(
+                      content:
+                          Text(localizations.navigationError(e.toString()))),
                 );
               }
             },
@@ -564,7 +572,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             IconButton(
               onPressed: _submitAttendance,
               icon: const Icon(Icons.save, color: Colors.white),
-              tooltip: 'Save Attendance',
+              tooltip: localizations.saveAttendance,
             ),
         ],
       ),
@@ -589,9 +597,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                       // Class Dropdown
                       Row(
                         children: [
-                          const Text(
-                            'Class: ',
-                            style: TextStyle(
+                          Text(
+                            localizations.classLabel,
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
@@ -601,14 +609,14 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                 ? const CircularProgressIndicator()
                                 : DropdownButton<String>(
                                     value: selectedClassId,
-                                    hint: const Text('Select Class'),
+                                    hint: Text(localizations.selectClass),
                                     isExpanded: true,
                                     items: classes.map((c) {
                                       return DropdownMenuItem<String>(
                                         value: c.objectId,
                                         child: Text(
                                             c.get<String>('classname') ??
-                                                'Unknown Class'),
+                                                localizations.unknownClass),
                                       );
                                     }).toList(),
                                     onChanged: (val) {
@@ -628,9 +636,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                       // Date Picker
                       Row(
                         children: [
-                          const Text(
-                            'Date: ',
-                            style: TextStyle(
+                          Text(
+                            localizations.dateColon,
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
@@ -684,9 +692,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                       // Session Dropdown
                       Row(
                         children: [
-                          const Text(
-                            'Session: ',
-                            style: TextStyle(
+                          Text(
+                            localizations.sessionLabel,
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
@@ -695,12 +703,16 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                             child: DropdownButton<String>(
                               value: selectedSession,
                               isExpanded: true,
-                              items: ['Morning', 'Afternoon']
-                                  .map((s) => DropdownMenuItem(
-                                        value: s,
-                                        child: Text(s),
-                                      ))
-                                  .toList(),
+                              items: [
+                                DropdownMenuItem(
+                                  value: 'Morning',
+                                  child: Text(localizations.morning),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'Afternoon',
+                                  child: Text(localizations.afternoon),
+                                ),
+                              ],
                               onChanged: (val) async {
                                 setState(() {
                                   selectedSession = val!;
@@ -739,10 +751,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                 color: Colors.green,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Center(
+                              child: Center(
                                 child: Text(
-                                  'P',
-                                  style: TextStyle(
+                                  localizations.presentShort,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
@@ -751,7 +763,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Text('Present'),
+                            Text(localizations.present),
                           ],
                         ),
                         Row(
@@ -763,10 +775,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                 color: Colors.red,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Center(
+                              child: Center(
                                 child: Text(
-                                  'A',
-                                  style: TextStyle(
+                                  localizations.absentShort,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
@@ -775,7 +787,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Text('Absent'),
+                            Text(localizations.absent),
                           ],
                         ),
                         Row(
@@ -787,10 +799,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                 color: Colors.orange,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Center(
+                              child: Center(
                                 child: Text(
-                                  'L',
-                                  style: TextStyle(
+                                  localizations.lateShort,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
@@ -799,7 +811,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Text('Late'),
+                            Text(localizations.late),
                           ],
                         ),
                         Row(
@@ -811,10 +823,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                 color: Colors.blue,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Center(
+                              child: Center(
                                 child: Text(
-                                  'E',
-                                  style: TextStyle(
+                                  localizations.excuseShort,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
@@ -823,7 +835,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Text('Excuse'),
+                            Text(localizations.excuse),
                           ],
                         ),
                       ],
@@ -839,20 +851,20 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                       child: CircularProgressIndicator(color: Colors.white),
                     )
                   : selectedClassId == null
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'Please select a class to view students',
-                            style: TextStyle(
+                            localizations.pleaseSelectClassToViewStudents,
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
                             ),
                           ),
                         )
                       : students.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: Text(
-                                'No students found in this class',
-                                style: TextStyle(
+                                localizations.noStudentsFoundInClass,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
                                 ),
@@ -893,10 +905,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                               Container(
                                                 padding:
                                                     const EdgeInsets.all(8),
-                                                child: const Text(
-                                                  'No.',
+                                                child: Text(
+                                                  localizations.numberShort,
                                                   textAlign: TextAlign.center,
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.white,
                                                     fontSize: 12,
@@ -906,9 +918,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                               Container(
                                                 padding:
                                                     const EdgeInsets.all(8),
-                                                child: const Text(
-                                                  'Student Name',
-                                                  style: TextStyle(
+                                                child: Text(
+                                                  localizations.studentName,
+                                                  style: const TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.white,
                                                     fontSize: 12,
@@ -918,10 +930,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                               Container(
                                                 padding:
                                                     const EdgeInsets.all(8),
-                                                child: const Text(
-                                                  'P',
+                                                child: Text(
+                                                  localizations.presentShort,
                                                   textAlign: TextAlign.center,
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.white,
                                                     fontSize: 12,
@@ -931,10 +943,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                               Container(
                                                 padding:
                                                     const EdgeInsets.all(8),
-                                                child: const Text(
-                                                  'A',
+                                                child: Text(
+                                                  localizations.absentShort,
                                                   textAlign: TextAlign.center,
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.white,
                                                     fontSize: 12,
@@ -944,10 +956,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                               Container(
                                                 padding:
                                                     const EdgeInsets.all(8),
-                                                child: const Text(
-                                                  'Total Absent',
+                                                child: Text(
+                                                  localizations.totalAbsent,
                                                   textAlign: TextAlign.center,
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.white,
                                                     fontSize: 12,
@@ -1181,6 +1193,24 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   Widget _buildTableAttendanceButton(
       int studentIndex, String status, String label, Color color) {
     final isSelected = students[studentIndex]['status'] == status;
+    final localizations = AppLocalizations.of(context)!;
+
+    // Use localized short labels
+    String displayLabel = label;
+    switch (status) {
+      case 'present':
+        displayLabel = localizations.presentShort;
+        break;
+      case 'absent':
+        displayLabel = localizations.absentShort;
+        break;
+      case 'late':
+        displayLabel = localizations.lateShort;
+        break;
+      case 'excuse':
+        displayLabel = localizations.excuseShort;
+        break;
+    }
 
     return GestureDetector(
       onTap: () {
@@ -1201,7 +1231,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         ),
         child: Center(
           child: Text(
-            label,
+            displayLabel,
             style: TextStyle(
               color: isSelected ? Colors.white : color,
               fontWeight: FontWeight.bold,
@@ -1221,17 +1251,20 @@ class AttendanceHistoryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
+
     return Container(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Attendance History',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          Text(localizations.attendanceHistory,
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           const SizedBox(height: 16),
           Expanded(
             child: classId == null
-                ? const Center(child: Text('No class selected.'))
+                ? Center(child: Text(localizations.noClassSelected))
                 : FutureBuilder<List<Map<String, dynamic>>>(
                     future:
                         AttendanceHistoryView.fetchAttendanceHistory(classId!),
@@ -1241,8 +1274,8 @@ class AttendanceHistoryView extends StatelessWidget {
                       } else if (snapshot.hasError) {
                         return Center(child: Text('Error: ${snapshot.error}'));
                       } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Center(
-                            child: Text('No attendance records.'));
+                        return Center(
+                            child: Text(localizations.noAttendanceRecords));
                       } else {
                         final records = snapshot.data!;
                         return ListView.builder(
@@ -1251,9 +1284,12 @@ class AttendanceHistoryView extends StatelessWidget {
                             final record = records[index];
                             return Card(
                               child: ListTile(
-                                title: Text(record['studentName']),
-                                subtitle: Text(
-                                    'Status: ${record['status']}, Date: ${record['date']}, Session: ${record['session']}'),
+                                title: Text(localizations
+                                    .studentNameField(record['studentName'])),
+                                subtitle: Text(localizations.statusDateSession(
+                                    record['status'],
+                                    record['date'],
+                                    record['session'])),
                               ),
                             );
                           },
@@ -1265,7 +1301,7 @@ class AttendanceHistoryView extends StatelessWidget {
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(localizations.close),
           ),
         ],
       ),

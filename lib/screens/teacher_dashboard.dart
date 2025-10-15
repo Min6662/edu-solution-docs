@@ -31,24 +31,44 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   }
 
   Future<void> _loadTeachers({bool forceRefresh = false}) async {
+    print('DEBUG: _loadTeachers called with forceRefresh: $forceRefresh');
+
     setState(() {
       loading = true;
       error = '';
     });
+
     try {
+      // If force refresh, clear cache first
+      if (forceRefresh) {
+        print('DEBUG: Force refresh - clearing teacher cache...');
+        await CacheService.clearTeacherList();
+      }
+
       final teacherList = await ClassService.getTeacherList();
-      allTeachers =
-          teacherList.map((data) => Teacher.fromParseObject(data)).toList();
+      print('DEBUG: Received ${teacherList.length} teachers from ClassService');
+
+      allTeachers = teacherList.map((data) {
+        print(
+            'DEBUG: Converting teacher data: ${data['fullName']} - ${data['yearsOfExperience']} years - \$${data['hourlyRate']}/hr');
+        return Teacher.fromParseObject(data);
+      }).toList();
+
+      print(
+          'DEBUG: Successfully converted ${allTeachers.length} teachers to Teacher objects');
+
       setState(() {
         loading = false;
       });
+
       // Load teacher images from cache or network
       for (final teacher in allTeachers) {
         _getTeacherImage(teacher.objectId, teacher.photoUrl ?? '');
       }
     } catch (e) {
+      print('DEBUG: Error in _loadTeachers: $e');
       setState(() {
-        error = 'Failed to load teachers: \\${e.toString()}';
+        error = 'Failed to load teachers: ${e.toString()}';
         loading = false;
       });
     }
@@ -124,8 +144,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                       name: teacher.fullName,
                       photoUrl: teacher.photoUrl,
                       yearsOfExperience: teacher.yearsOfExperience,
-                      rating: teacher.rating,
-                      ratingCount: teacher.ratingCount,
                       hourlyRate: teacher.hourlyRate,
                       imageBytes: teacherImages[teacher.objectId],
                       onTap: () {
@@ -137,14 +155,6 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
                           MaterialPageRoute(
                             builder: (context) =>
                                 TeacherDetailScreen(teacher: teacher),
-                          ),
-                        );
-                      },
-                      onAdd: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const TeacherRegistrationScreen(),
                           ),
                         );
                       },

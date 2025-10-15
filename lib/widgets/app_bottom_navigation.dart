@@ -3,6 +3,7 @@ import '../screens/settings_screen.dart';
 import '../screens/time_table_screen.dart';
 import '../screens/teacher_qr_scan_screen.dart';
 import '../screens/exam_result_screen.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class AppBottomNavigation extends StatelessWidget {
   final int currentIndex;
@@ -90,6 +91,8 @@ class AppBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -125,7 +128,7 @@ class AppBottomNavigation extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Home',
+                            l10n.home,
                             style: TextStyle(
                               color:
                                   currentIndex == 0 ? Colors.blue : Colors.grey,
@@ -156,7 +159,7 @@ class AppBottomNavigation extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Schedule',
+                              l10n.schedule,
                               style: TextStyle(
                                 color: currentIndex == 1
                                     ? Colors.blue
@@ -189,7 +192,7 @@ class AppBottomNavigation extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Results',
+                              l10n.results,
                               style: TextStyle(
                                 color: currentIndex == 2
                                     ? Colors.blue
@@ -220,7 +223,7 @@ class AppBottomNavigation extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Settings',
+                            l10n.settings,
                             style: TextStyle(
                               color:
                                   currentIndex == 3 ? Colors.blue : Colors.grey,

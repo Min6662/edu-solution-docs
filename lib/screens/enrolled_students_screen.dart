@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import '../services/cache_service.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class EnrolledStudentsScreen extends StatefulWidget {
   final String classId;
@@ -42,14 +43,15 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
         loading = false;
       });
     } else {
-      setState(() {
-        error = 'No cached data available. Please refresh to fetch data.';
-        loading = false;
-      });
+      // No cached data, fetch fresh data from server
+      _fetchEnrolledStudents();
     }
   }
 
   Future<void> _fetchEnrolledStudents() async {
+    print('=== FETCH ENROLLED STUDENTS DEBUG ===');
+    print('Class ID: ${widget.classId}');
+
     setState(() {
       loading = true;
       error = '';
@@ -64,7 +66,10 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
       // TODO: Add school filtering when multi-tenant system is implemented
       // ..whereEqualTo('school', ParseObject('School')..objectId = currentSchoolId);
 
+      print('Executing enrolment query...');
       final enrolResponse = await enrolQuery.query();
+      print('Enrolment query response: ${enrolResponse.success}');
+      print('Enrolment results count: ${enrolResponse.results?.length ?? 0}');
 
       if (enrolResponse.success && enrolResponse.results != null) {
         List<EnrolledStudent> students = [];
@@ -115,6 +120,9 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
           loading = false;
         });
 
+        print('Successfully loaded ${students.length} enrolled students');
+        print('=== END FETCH ENROLLED STUDENTS DEBUG ===');
+
         // Save to cache using CacheService
         await CacheService.saveEnrolledStudents(
           widget.classId,
@@ -127,12 +135,15 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
               .toList(),
         );
       } else {
+        print('Enrolment query failed or no results');
+        print('Error: ${enrolResponse.error}');
         setState(() {
-          error = 'Failed to fetch enrolled students.';
+          error = AppLocalizations.of(context)!.failedToFetchEnrolledStudents;
           loading = false;
         });
       }
     } catch (e) {
+      print('Exception in _fetchEnrolledStudents: $e');
       setState(() {
         error = 'Error: $e';
         loading = false;
@@ -151,18 +162,18 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove Student'),
+        title: Text(AppLocalizations.of(context)!.removeStudent),
         content: Text(
-            'Are you sure you want to remove $studentName from ${widget.className}?'),
+            '${AppLocalizations.of(context)!.areYouSureRemoveStudent} $studentName ${AppLocalizations.of(context)!.from} ${widget.className}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Remove'),
+            child: Text(AppLocalizations.of(context)!.remove),
           ),
         ],
       ),
@@ -181,7 +192,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('$studentName removed from ${widget.className}')),
+                content: Text(
+                    '$studentName ${AppLocalizations.of(context)!.removedFromClass} ${widget.className}')),
           );
         }
       } else {
@@ -192,7 +204,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Failed to remove student: ${response.error?.message ?? 'Unknown error'}'),
+                  '${AppLocalizations.of(context)!.failedToRemoveStudent}: ${response.error?.message ?? AppLocalizations.of(context)!.unknownError}'),
               backgroundColor: Colors.red,
             ),
           );
@@ -205,14 +217,15 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.className} - Enrolled Students'),
+        title: Text(
+            '${widget.className} - ${AppLocalizations.of(context)!.enrolledStudents}'),
         backgroundColor: Colors.orange[400],
         foregroundColor: Colors.white,
         elevation: 2,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh List',
+            tooltip: AppLocalizations.of(context)!.refreshList,
             onPressed: () async {
               await CacheService.clearEnrolledStudents(widget.classId);
               _fetchEnrolledStudents();
@@ -240,7 +253,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${enrolledStudents.length} student${enrolledStudents.length != 1 ? 's' : ''} enrolled',
+                  '${enrolledStudents.length} ${enrolledStudents.length != 1 ? AppLocalizations.of(context)!.studentsEnrolled : AppLocalizations.of(context)!.studentEnrolled}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[600],
@@ -271,7 +284,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                             const SizedBox(height: 16),
                             ElevatedButton(
                               onPressed: _fetchEnrolledStudents,
-                              child: const Text('Retry'),
+                              child: Text(AppLocalizations.of(context)!.retry),
                             ),
                           ],
                         ),
@@ -285,14 +298,15 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                                     size: 64, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'No students enrolled in ${widget.className}',
+                                  '${AppLocalizations.of(context)!.noStudentsEnrolledIn} ${widget.className}',
                                   style: TextStyle(
                                       fontSize: 16, color: Colors.grey[600]),
                                   textAlign: TextAlign.center,
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Students can be enrolled from the main dashboard',
+                                  AppLocalizations.of(context)!
+                                      .studentsCanBeEnrolledFromDashboard,
                                   style: TextStyle(
                                       fontSize: 14, color: Colors.grey[500]),
                                   textAlign: TextAlign.center,
@@ -336,7 +350,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                                     ),
                                   ),
                                   subtitle: Text(
-                                    'Student ID: ${student.studentId}',
+                                    '${AppLocalizations.of(context)!.studentID}: ${student.studentId}',
                                     style: TextStyle(
                                       color: Colors.grey[600],
                                       fontSize: 12,
@@ -345,7 +359,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                                   trailing: IconButton(
                                     icon: const Icon(Icons.remove_circle,
                                         color: Colors.red),
-                                    tooltip: 'Remove from class',
+                                    tooltip: AppLocalizations.of(context)!
+                                        .removeFromClass,
                                     onPressed: loading
                                         ? null
                                         : () => _removeStudent(
@@ -363,7 +378,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddStudentDialog,
         backgroundColor: Colors.orange[400],
-        tooltip: 'Add Student to Class',
+        tooltip: AppLocalizations.of(context)!.addStudentToClass,
         child: const Icon(Icons.person_add, color: Colors.white),
       ),
     );
@@ -382,7 +397,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to load students: $e'),
+          content:
+              Text('${AppLocalizations.of(context)!.failedToLoadStudents}: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -397,8 +413,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
 
     if (availableStudents.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No available students to add to this class'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.noAvailableStudentsToAdd),
           backgroundColor: Colors.orange,
         ),
       );
@@ -438,8 +454,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Add Student',
+                        Text(
+                          AppLocalizations.of(context)!.addStudent,
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -447,7 +463,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                           ),
                         ),
                         Text(
-                          'Select a student to enroll in ${widget.className}',
+                          '${AppLocalizations.of(context)!.selectStudentToEnroll} ${widget.className}',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -480,7 +496,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                     Expanded(
                       child: TextField(
                         decoration: InputDecoration(
-                          hintText: 'Search students...',
+                          hintText:
+                              AppLocalizations.of(context)!.searchStudents,
                           hintStyle: TextStyle(color: Colors.grey[500]),
                           border: InputBorder.none,
                         ),
@@ -499,7 +516,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  '${availableStudents.length} available students',
+                  '${availableStudents.length} ${AppLocalizations.of(context)!.availableStudents}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[600],
@@ -518,8 +535,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                       const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final student = availableStudents[index];
-                    final studentName =
-                        student.get<String>('name') ?? 'Unknown';
+                    final studentName = student.get<String>('name') ??
+                        AppLocalizations.of(context)!.unknown;
                     final studentId = student.objectId ?? '';
 
                     return Container(
@@ -570,7 +587,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'ID: $studentId',
+                                  '${AppLocalizations.of(context)!.id}: $studentId',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey[500],
@@ -613,8 +630,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                                     horizontal: 20,
                                     vertical: 10,
                                   ),
-                                  child: const Text(
-                                    'Add',
+                                  child: Text(
+                                    AppLocalizations.of(context)!.add,
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w600,
@@ -645,7 +662,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
                           horizontal: 24, vertical: 12),
                     ),
                     child: Text(
-                      'Cancel',
+                      AppLocalizations.of(context)!.cancel,
                       style: TextStyle(
                         color: Colors.grey[600],
                         fontWeight: FontWeight.w500,
@@ -662,7 +679,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
   }
 
   Future<void> _enrollStudent(ParseObject student) async {
-    final studentName = student.get<String>('name') ?? 'Unknown';
+    final studentName =
+        student.get<String>('name') ?? AppLocalizations.of(context)!.unknown;
 
     // Show loading
     showDialog(
@@ -691,7 +709,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                'Enrolling Student',
+                AppLocalizations.of(context)!.enrollingStudent,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -700,7 +718,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Adding $studentName to ${widget.className}...',
+                '${AppLocalizations.of(context)!.adding} $studentName ${AppLocalizations.of(context)!.to} ${widget.className}...',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[600],
@@ -732,7 +750,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '$studentName enrolled in ${widget.className} successfully!'),
+                '$studentName ${AppLocalizations.of(context)!.enrolledInSuccessfully} ${widget.className} ${AppLocalizations.of(context)!.successfully}'),
             backgroundColor: Colors.green,
           ),
         );
@@ -740,7 +758,7 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Failed to enroll student: ${response.error?.message ?? 'Unknown error'}'),
+                '${AppLocalizations.of(context)!.failedToEnrollStudent}: ${response.error?.message ?? AppLocalizations.of(context)!.unknownError}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -751,7 +769,8 @@ class _EnrolledStudentsScreenState extends State<EnrolledStudentsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error enrolling student: $e'),
+          content: Text(
+              '${AppLocalizations.of(context)!.errorEnrollingStudent}: $e'),
           backgroundColor: Colors.red,
         ),
       );

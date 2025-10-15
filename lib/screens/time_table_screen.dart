@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import '../widgets/app_bottom_navigation.dart';
+import '../services/language_service.dart';
+import '../services/cache_service.dart';
 
 class TimeTableScreen extends StatefulWidget {
   final String userRole;
@@ -55,6 +59,11 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   // Store schedule data - Map<timeSlot, Map<day, subject>>
   Map<String, Map<String, String>> scheduleData = {};
   Map<String, Map<String, String>> afternoonScheduleData = {};
+
+  // Helper method to get localized day names
+  List<String> getLocalizedWeekDays(AppLocalizations l10n) {
+    return [l10n.mon, l10n.tue, l10n.wed, l10n.thu, l10n.fri];
+  }
 
   @override
   void initState() {
@@ -145,64 +154,249 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   }
 
   Future<void> _loadData() async {
-    await Future.wait([
-      _loadTeachers(),
-      _loadClasses(),
-    ]);
     setState(() {
-      isLoadingData = false;
+      isLoadingData = true;
     });
 
-    // For teachers, load schedule data after all data is loaded
-    if (isTeacher && selectedTeacher != null) {
-      print('DEBUG: Loading schedule data for teacher after data load');
-      await _loadScheduleData();
+    try {
+      print('DEBUG: Starting _loadData...');
+
+      // Try to load from cache first
+      final cachedData = CacheService.getTeachersAndClasses();
+      print('DEBUG: Cached data exists: ${cachedData != null}');
+      if (cachedData != null &&
+          CacheService.isCacheFresh(cachedData['lastUpdated'],
+              maxAgeMinutes: 10)) {
+        print('DEBUG: Cache is fresh, loading from cache...');
+
+        try {
+          setState(() {
+            // Safely cast the cached data
+            final cachedTeachers =
+                cachedData['teachers'] as List<dynamic>? ?? [];
+            final cachedClasses = cachedData['classes'] as List<dynamic>? ?? [];
+
+            teachers = cachedTeachers
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
+            classes = cachedClasses
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
+
+            isLoadingData = false;
+          });
+
+          print(
+              'DEBUG: Loaded ${teachers.length} teachers and ${classes.length} classes from cache');
+
+          // For teachers, load schedule data after cached data is loaded
+          if (isTeacher && selectedTeacher != null) {
+            print(
+                'DEBUG: Loading schedule data for teacher after cached data load');
+            await _loadScheduleData();
+          }
+
+          // Still fetch fresh data in background
+          _loadFreshData();
+          return;
+        } catch (cacheError) {
+          print('ERROR in cache processing: $cacheError');
+          // If cache processing fails, fall through to fresh data loading
+        }
+      }
+
+      print('DEBUG: No cache or cache is stale, loading fresh data...');
+      // Load fresh data if no cache or cache is stale
+      await _loadFreshData();
+    } catch (e) {
+      print('ERROR in _loadData: $e');
+      print('ERROR stack trace: ${e.toString()}');
+      setState(() {
+        isLoadingData = false;
+      });
+    }
+  }
+
+  Future<void> _loadFreshData() async {
+    try {
+      await Future.wait([
+        _loadTeachers(),
+        _loadClasses(),
+      ]);
+
+      print(
+          'DEBUG: Loaded ${teachers.length} teachers and ${classes.length} classes from Parse');
+
+      // Save to cache
+      await CacheService.saveTeachersAndClasses(
+        teachers: teachers,
+        classes: classes,
+      );
+
+      setState(() {
+        isLoadingData = false;
+      });
+
+      // For teachers, load schedule data after all data is loaded
+      if (isTeacher && selectedTeacher != null) {
+        print('DEBUG: Loading schedule data for teacher after fresh data load');
+        await _loadScheduleData();
+      }
+    } catch (e) {
+      print('ERROR in _loadFreshData: $e');
+      setState(() {
+        isLoadingData = false;
+      });
     }
   }
 
   Future<void> _loadTeachers() async {
     try {
+      print('DEBUG: Fetching teachers from Parse...');
       final query = QueryBuilder<ParseObject>(ParseObject('Teacher'));
       final response = await query.query();
 
       if (response.success && response.results != null) {
+        final fetchedTeachers = response.results!
+            .map((teacher) => {
+                  'id': teacher.objectId ?? '',
+                  'name': teacher.get<String>('fullName') ?? 'Unknown Teacher',
+                })
+            .toList();
+
         setState(() {
-          teachers = response.results!
-              .map((teacher) => {
-                    'id': teacher.objectId ?? '',
-                    'name':
-                        teacher.get<String>('fullName') ?? 'Unknown Teacher',
-                  })
-              .toList();
+          teachers = fetchedTeachers;
+        });
+
+        print('DEBUG: Successfully loaded ${teachers.length} teachers');
+      } else {
+        print('DEBUG: Failed to load teachers - ${response.error?.message}');
+        setState(() {
+          teachers = []; // Set empty list instead of leaving undefined
         });
       }
     } catch (e) {
-      print('Error loading teachers: $e');
+      print('ERROR loading teachers: $e');
+      setState(() {
+        teachers = []; // Set empty list on error
+      });
     }
   }
 
   Future<void> _loadClasses() async {
     try {
+      print('DEBUG: Fetching classes from Parse...');
       final query = QueryBuilder<ParseObject>(ParseObject('Class'));
       final response = await query.query();
 
       if (response.success && response.results != null) {
+        final fetchedClasses = response.results!
+            .map((classObj) => {
+                  'id': classObj.objectId ?? '',
+                  'name': classObj.get<String>('classname') ?? 'Unknown Class',
+                })
+            .toList();
+
         setState(() {
-          classes = response.results!
-              .map((classObj) => {
-                    'id': classObj.objectId ?? '',
-                    'name':
-                        classObj.get<String>('classname') ?? 'Unknown Class',
-                  })
-              .toList();
+          classes = fetchedClasses;
+        });
+
+        print('DEBUG: Successfully loaded ${classes.length} classes');
+      } else {
+        print('DEBUG: Failed to load classes - ${response.error?.message}');
+        setState(() {
+          classes = []; // Set empty list instead of leaving undefined
         });
       }
     } catch (e) {
-      print('Error loading classes: $e');
+      print('ERROR loading classes: $e');
+      setState(() {
+        classes = []; // Set empty list on error
+      });
     }
   }
 
   Future<void> _loadScheduleData() async {
+    if (selectedTeacher == null && selectedClass == null) {
+      // No selection, keep empty schedule
+      print('DEBUG: No teacher or class selected, keeping empty schedule');
+      return;
+    }
+
+    // Try to load from cache first
+    final cacheKey = '${selectedTeacher ?? 'none'}_${selectedClass ?? 'none'}';
+    final cachedTimetable = CacheService.getTimetableData(
+      teacherId: selectedTeacher ?? 'none',
+      classId: selectedClass ?? 'none',
+    );
+
+    if (cachedTimetable != null &&
+        CacheService.isCacheFresh(cachedTimetable['lastUpdated'],
+            maxAgeMinutes: 5)) {
+      // Load from cache
+      setState(() {
+        scheduleData = Map<String, Map<String, String>>.from(
+            cachedTimetable['morningSchedule'].map((key, value) =>
+                MapEntry(key, Map<String, String>.from(value))));
+        afternoonScheduleData = Map<String, Map<String, String>>.from(
+            cachedTimetable['afternoonSchedule'].map((key, value) =>
+                MapEntry(key, Map<String, String>.from(value))));
+      });
+      print('DEBUG: Loaded schedule from cache for $cacheKey');
+
+      // Still fetch fresh data in background
+      _loadFreshScheduleData();
+      return;
+    }
+
+    // Load fresh data if no cache or cache is stale
+    await _loadFreshScheduleData();
+  }
+
+  Future<Map<String, String>> _getTeacherAssignedSubjects(
+      String teacherId, String classId) async {
+    try {
+      print(
+          'DEBUG: Fetching teacher assigned subjects for teacherId: $teacherId, classId: $classId');
+
+      // Query ClassSubjectTeacher table to get teacher's assigned subjects for this class
+      final query = QueryBuilder<ParseObject>(
+          ParseObject('ClassSubjectTeacher'))
+        ..whereEqualTo('teacher', ParseObject('Teacher')..objectId = teacherId)
+        ..whereEqualTo('class', ParseObject('Class')..objectId = classId)
+        ..includeObject(['subject']);
+
+      final response = await query.query();
+
+      Map<String, String> assignedSubjects = {};
+
+      if (response.success && response.results != null) {
+        for (var assignment in response.results!) {
+          final subjectObj = assignment.get<ParseObject>('subject');
+          final dayOfWeek = assignment.get<String>('dayOfWeek') ?? '';
+
+          if (subjectObj != null) {
+            final subjectName = subjectObj.get<String>('subjectName') ??
+                subjectObj.get<String>('name') ??
+                'Unknown Subject';
+
+            // Store with day as key for easy lookup
+            assignedSubjects[dayOfWeek] = subjectName;
+            print(
+                'DEBUG: Found assigned subject: $subjectName for day: $dayOfWeek');
+          }
+        }
+      }
+
+      print('DEBUG: Total assigned subjects found: ${assignedSubjects.length}');
+      return assignedSubjects;
+    } catch (e) {
+      print('ERROR: Failed to fetch teacher assigned subjects: $e');
+      return {};
+    }
+  }
+
+  Future<void> _loadFreshScheduleData() async {
     // Clear both schedules first
     setState(() {
       for (String time in timeSlots) {
@@ -217,35 +411,240 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       }
     });
 
-    if (selectedTeacher == null && selectedClass == null) {
-      // No selection, keep empty schedule
-      print('DEBUG: No teacher or class selected, keeping empty schedule');
-      return;
-    }
-
     print(
-        'DEBUG: _loadScheduleData called - isTeacher: $isTeacher, selectedTeacher: $selectedTeacher, selectedClass: $selectedClass');
+        'DEBUG: _loadFreshScheduleData called - isTeacher: $isTeacher, selectedTeacher: $selectedTeacher, selectedClass: $selectedClass');
 
     try {
       print(
-          'Loading schedule data - Teacher: $selectedTeacher, Class: $selectedClass');
+          'Loading fresh schedule data - Teacher: $selectedTeacher, Class: $selectedClass');
+
+      // Get teacher's assigned subjects for the selected class (if both are selected)
+      Map<String, String> teacherClassSubjects = {};
+      if (selectedTeacher != null && selectedClass != null) {
+        teacherClassSubjects =
+            await _getTeacherAssignedSubjects(selectedTeacher!, selectedClass!);
+        print(
+            'DEBUG: Teacher assigned subjects for class: $teacherClassSubjects');
+      }
 
       final query = QueryBuilder<ParseObject>(ParseObject('Schedule'));
       // Include teacher and class data in the query
       query.includeObject(['teacher', 'class']);
 
-      // Priority logic: If class is selected, show ALL subjects for that class
-      // If only teacher is selected, show subjects for that teacher
-      if (selectedClass != null) {
+      // Modified logic: When both teacher and class are selected,
+      // we need to load TWO sets of data for complete conflict prevention:
+      // 1. Selected teacher's schedules across all classes (to prevent teacher conflicts)
+      // 2. All teachers' schedules for the selected class (to prevent class conflicts)
+      if (selectedTeacher != null && selectedClass != null) {
         print(
-            'Loading ALL schedules for class: $selectedClass (priority mode)');
+            'Loading HYBRID data: teacher schedules + class schedules for conflict prevention');
+
+        // Check cache first for hybrid data
+        final hybridCacheKey = '${selectedTeacher}_${selectedClass}_hybrid';
+        final cachedHybridData = CacheService.getTimetableData(
+          teacherId: selectedTeacher!,
+          classId: selectedClass!,
+        );
+
+        if (cachedHybridData != null &&
+            CacheService.isCacheFresh(cachedHybridData['lastUpdated'],
+                maxAgeMinutes: 3)) {
+          // Load hybrid data from cache
+          setState(() {
+            scheduleData = Map<String, Map<String, String>>.from(
+                cachedHybridData['morningSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            afternoonScheduleData = Map<String, Map<String, String>>.from(
+                cachedHybridData['afternoonSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            isLoadingData = false;
+          });
+          print('DEBUG: Loaded hybrid schedule from cache for $hybridCacheKey');
+          return; // Exit early since we loaded from cache
+        }
+
+        print('DEBUG: No fresh hybrid cache found, executing dual queries...');
+
+        // First query: Get selected teacher's schedules across all classes
+        final teacherQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'));
+        teacherQuery.includeObject(['teacher', 'class']);
+        final teacherPointer = ParseObject('Teacher')
+          ..objectId = selectedTeacher;
+        teacherQuery.whereEqualTo('teacher', teacherPointer);
+
+        // Second query: Get all schedules for the selected class
+        final classQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'));
+        classQuery.includeObject(['teacher', 'class']);
+        final classPointer = ParseObject('Class')..objectId = selectedClass;
+        classQuery.whereEqualTo('class', classPointer);
+
+        // Execute both queries
+        final teacherResponse = await teacherQuery.query();
+        final classResponse = await classQuery.query();
+
+        print('Teacher query results: ${teacherResponse.results?.length ?? 0}');
+        print('Class query results: ${classResponse.results?.length ?? 0}');
+
+        // Combine results, avoiding duplicates
+        final allResults = <ParseObject>[];
+        final seenSchedules = <String>{};
+
+        // Add teacher schedules
+        if (teacherResponse.success && teacherResponse.results != null) {
+          for (var schedule in teacherResponse.results!) {
+            final key =
+                '${schedule.get<String>('day')}_${schedule.get<String>('timeSlot')}_${schedule.objectId}';
+            if (!seenSchedules.contains(key)) {
+              allResults.add(schedule);
+              seenSchedules.add(key);
+            }
+          }
+        }
+
+        // Add class schedules (avoiding duplicates)
+        if (classResponse.success && classResponse.results != null) {
+          for (var schedule in classResponse.results!) {
+            final key =
+                '${schedule.get<String>('day')}_${schedule.get<String>('timeSlot')}_${schedule.objectId}';
+            if (!seenSchedules.contains(key)) {
+              allResults.add(schedule);
+              seenSchedules.add(key);
+            }
+          }
+        }
+
+        // Process the combined results
+        if (allResults.isNotEmpty) {
+          for (var schedule in allResults) {
+            final day = schedule.get<String>('day') ?? '';
+            final timeSlot = schedule.get<String>('timeSlot') ?? '';
+            final subject = schedule.get<String>('subject') ?? '';
+
+            // Get teacher and class information
+            final teacherPointer = schedule.get<ParseObject>('teacher');
+            final classPointer = schedule.get<ParseObject>('class');
+
+            final teacherName =
+                teacherPointer?.get<String>('fullName') ?? 'Unknown Teacher';
+            final className =
+                classPointer?.get<String>('classname') ?? 'Unknown Class';
+
+            print(
+                'Processing hybrid schedule: $day $timeSlot - $subject by $teacherName for $className');
+
+            String displayText;
+
+            if (teacherPointer?.objectId == selectedTeacher) {
+              // This is the selected teacher's schedule
+              final isCurrentClass = classPointer?.objectId == selectedClass;
+
+              if (isCurrentClass) {
+                // Current class assignment - show as editable
+                bool isAssignedSubject =
+                    teacherClassSubjects.values.contains(subject);
+                if (isAssignedSubject) {
+                  displayText =
+                      '$subject ✓'; // Assigned subject for current class
+                } else {
+                  displayText = subject; // Other subject for current class
+                }
+              } else {
+                // Different class - show as conflict warning with class name
+                String classShortName = className.length > 8
+                    ? className.substring(0, 8) + '..'
+                    : className;
+                displayText =
+                    '$subject\n($classShortName)'; // Show subject with class info
+              }
+            } else {
+              // Different teacher's schedule in the selected class
+              String firstName = teacherName.split(' ').first.toLowerCase();
+              displayText =
+                  '$subject\n($firstName)'; // Show other teacher's subject
+            }
+
+            // Store the schedule data
+            if (scheduleData.containsKey(timeSlot)) {
+              scheduleData[timeSlot]![day] = displayText;
+            } else {
+              afternoonScheduleData[timeSlot]![day] = displayText;
+            }
+          }
+        }
+
+        // Cache the combined data
+        await CacheService.saveTimetableData(
+          teacherId: selectedTeacher ?? 'none',
+          classId: selectedClass ?? 'none',
+          morningSchedule: scheduleData,
+          afternoonSchedule: afternoonScheduleData,
+          teachers: teachers,
+          classes: classes,
+        );
+        print(
+            'DEBUG: Cached hybrid schedule data for ${selectedTeacher}_$selectedClass');
+
+        setState(() {
+          isLoadingData = false;
+        });
+        return; // Exit early since we handled everything above
+      } else if (selectedClass != null) {
+        print(
+            'Loading ALL schedules for class: $selectedClass (class-only mode)');
+
+        // Check cache first for class-only data
+        final classCacheData = CacheService.getTimetableData(
+          teacherId: 'none',
+          classId: selectedClass!,
+        );
+
+        if (classCacheData != null &&
+            CacheService.isCacheFresh(classCacheData['lastUpdated'],
+                maxAgeMinutes: 3)) {
+          // Load class-only data from cache
+          setState(() {
+            scheduleData = Map<String, Map<String, String>>.from(
+                classCacheData['morningSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            afternoonScheduleData = Map<String, Map<String, String>>.from(
+                classCacheData['afternoonSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            isLoadingData = false;
+          });
+          print(
+              'DEBUG: Loaded class-only schedule from cache for $selectedClass');
+          return; // Exit early since we loaded from cache
+        }
+
         final classPointer = ParseObject('Class')..objectId = selectedClass;
         query.whereEqualTo('class', classPointer);
-
-        // If teacher is also selected, we'll still show all class subjects
-        // but can highlight the current teacher's subjects differently
       } else if (selectedTeacher != null) {
         print('Loading schedules for teacher only: $selectedTeacher');
+
+        // Check cache first for teacher-only data
+        final teacherCacheData = CacheService.getTimetableData(
+          teacherId: selectedTeacher!,
+          classId: 'none',
+        );
+
+        if (teacherCacheData != null &&
+            CacheService.isCacheFresh(teacherCacheData['lastUpdated'],
+                maxAgeMinutes: 3)) {
+          // Load teacher-only data from cache
+          setState(() {
+            scheduleData = Map<String, Map<String, String>>.from(
+                teacherCacheData['morningSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            afternoonScheduleData = Map<String, Map<String, String>>.from(
+                teacherCacheData['afternoonSchedule'].map((key, value) =>
+                    MapEntry(key, Map<String, String>.from(value))));
+            isLoadingData = false;
+          });
+          print(
+              'DEBUG: Loaded teacher-only schedule from cache for $selectedTeacher');
+          return; // Exit early since we loaded from cache
+        }
+
         final teacherPointer = ParseObject('Teacher')
           ..objectId = selectedTeacher;
         query.whereEqualTo('teacher', teacherPointer);
@@ -277,28 +676,50 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           String displayText;
 
           // Format display text based on view mode and user role
-          if (selectedClass != null && selectedTeacher != null) {
-            // Both selected - show if this entry matches current teacher
+          if (selectedTeacher != null && selectedClass != null) {
+            // Both selected - show ALL teacher's schedules across classes to prevent conflicts
+
             if (teacherPointer?.objectId == selectedTeacher) {
-              displayText = subject; // Current teacher's subject
+              // This is the selected teacher's schedule
+              final isCurrentClass = classPointer?.objectId == selectedClass;
+
+              if (isCurrentClass) {
+                // Current class assignment - show as editable
+                bool isAssignedSubject =
+                    teacherClassSubjects.values.contains(subject);
+                if (isAssignedSubject) {
+                  displayText =
+                      '$subject ✓'; // Assigned subject for current class
+                } else {
+                  displayText = subject; // Other subject for current class
+                }
+              } else {
+                // Different class - show as conflict warning with class name
+                String classShortName = className.length > 8
+                    ? className.substring(0, 8) + '..'
+                    : className;
+                displayText =
+                    '$subject\n($classShortName)'; // Show subject with class info
+              }
             } else {
-              // Get first name only (split by space and take first part)
+              // This shouldn't happen with current query logic
               String firstName = teacherName.split(' ').first.toLowerCase();
-              displayText =
-                  '$subject\n$firstName'; // Other teacher's subject with first name
+              displayText = '$subject\n($firstName)';
             }
           } else if (selectedClass != null) {
-            // Class selected - show all subjects with teacher names
-            // Get first name only (split by space and take first part)
+            // Class selected only - show all subjects with teacher names
             String firstName = teacherName.split(' ').first.toLowerCase();
             displayText = '$subject\n$firstName';
-          } else {
-            // Teacher only selected
+          } else if (selectedTeacher != null) {
+            // Teacher selected only - show subjects with class names
             if (isTeacher) {
               displayText = '$subject\n$className';
             } else {
-              displayText = subject;
+              displayText = '$subject\n$className';
             }
+          } else {
+            // Nothing selected
+            displayText = subject;
           }
 
           // Check if it's a morning schedule
@@ -316,21 +737,35 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
             });
           }
         }
+
+        // Cache the loaded schedule data
+        await CacheService.saveTimetableData(
+          teacherId: selectedTeacher ?? 'none',
+          classId: selectedClass ?? 'none',
+          morningSchedule: scheduleData,
+          afternoonSchedule: afternoonScheduleData,
+          teachers: teachers,
+          classes: classes,
+        );
+
+        print(
+            'DEBUG: Cached fresh schedule data for ${selectedTeacher ?? 'none'}_${selectedClass ?? 'none'}');
       } else {
         print('No schedule data found or query failed');
       }
     } catch (e) {
       print('Error loading schedule: $e');
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error loading schedule data'),
+        SnackBar(
+          content: Text(l10n.errorLoadingSchedule),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  Future<bool> _checkForConflicts(
+  Future<Map<String, dynamic>> _checkForConflicts(
       String day, String timeSlot, String teacherId, String classId) async {
     try {
       // Check teacher conflict (exclude current teacher-class combination)
@@ -356,24 +791,126 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       final teacherResponse = await teacherQuery.query();
       final classResponse = await classQuery.query();
 
-      return (teacherResponse.success &&
-              teacherResponse.results != null &&
-              teacherResponse.results!.isNotEmpty) ||
-          (classResponse.success &&
-              classResponse.results != null &&
-              classResponse.results!.isNotEmpty);
+      bool hasTeacherConflict = teacherResponse.success &&
+          teacherResponse.results != null &&
+          teacherResponse.results!.isNotEmpty;
+
+      bool hasClassConflict = classResponse.success &&
+          classResponse.results != null &&
+          classResponse.results!.isNotEmpty;
+
+      String conflictMessage = '';
+      if (hasTeacherConflict && hasClassConflict) {
+        conflictMessage =
+            'Both teacher and class are already assigned at this time.';
+      } else if (hasTeacherConflict) {
+        conflictMessage =
+            'Teacher is already assigned to another class at this time.';
+      } else if (hasClassConflict) {
+        conflictMessage =
+            'Class is already assigned to another teacher at this time.';
+      }
+
+      return {
+        'hasConflict': hasTeacherConflict || hasClassConflict,
+        'message': conflictMessage,
+        'teacherConflict': hasTeacherConflict,
+        'classConflict': hasClassConflict,
+      };
     } catch (e) {
       print('Error checking conflicts: $e');
-      return false;
+      return {
+        'hasConflict': false,
+        'message': '',
+        'teacherConflict': false,
+        'classConflict': false,
+      };
     }
   }
 
-  Future<void> _saveScheduleEntry(
-      String day, String timeSlot, String subject) async {
+  Future<void> _removeConflictingAssignments(
+      String day, String timeSlot, String teacherId, String classId) async {
+    try {
+      print('Removing conflicting assignments for $day $timeSlot');
+
+      // Remove any existing assignment for this class at this time
+      final classPointer = ParseObject('Class')..objectId = classId;
+      final classQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+        ..whereEqualTo('day', day)
+        ..whereEqualTo('timeSlot', timeSlot)
+        ..whereEqualTo('class', classPointer);
+
+      final classResponse = await classQuery.query();
+      if (classResponse.success && classResponse.results != null) {
+        for (var assignment in classResponse.results!) {
+          print('Removing existing class assignment: ${assignment.objectId}');
+          await assignment.delete();
+        }
+      }
+
+      // Remove any existing assignment for this teacher at this time (except current class)
+      final teacherPointer = ParseObject('Teacher')..objectId = teacherId;
+      final teacherQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+        ..whereEqualTo('day', day)
+        ..whereEqualTo('timeSlot', timeSlot)
+        ..whereEqualTo('teacher', teacherPointer)
+        ..whereNotEqualTo('class', classPointer);
+
+      final teacherResponse = await teacherQuery.query();
+      if (teacherResponse.success && teacherResponse.results != null) {
+        for (var assignment in teacherResponse.results!) {
+          print(
+              'Removing conflicting teacher assignment: ${assignment.objectId}');
+          await assignment.delete();
+        }
+      }
+
+      print('Conflicting assignments removed successfully');
+    } catch (e) {
+      print('Error removing conflicting assignments: $e');
+    }
+  }
+
+  Future<void> _debugCurrentAssignments(String day, String timeSlot) async {
+    try {
+      final query = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+        ..whereEqualTo('day', day)
+        ..whereEqualTo('timeSlot', timeSlot)
+        ..includeObject(['teacher', 'class']);
+
+      final response = await query.query();
+
+      if (response.success && response.results != null) {
+        print('=== Current assignments for $day $timeSlot ===');
+        for (var assignment in response.results!) {
+          final teacher = assignment.get('teacher');
+          final classObj = assignment.get('class');
+          final subject = assignment.get('subject');
+
+          print(
+              'Teacher: ${teacher?.get('fullName')} (ID: ${teacher?.objectId})');
+          print(
+              'Class: ${classObj?.get('className')} (ID: ${classObj?.objectId})');
+          print('Subject: $subject');
+          print('---');
+        }
+        print('=== End current assignments ===');
+      } else {
+        print('No current assignments found for $day $timeSlot');
+      }
+    } catch (e) {
+      print('Error debugging assignments: $e');
+    }
+  }
+
+  Future<void> _saveScheduleEntry(String day, String timeSlot, String subject,
+      {bool allowOverwrite = false}) async {
+    final l10n = AppLocalizations.of(context)!;
+
     if (selectedTeacher == null || selectedClass == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select both teacher and class'),
+        SnackBar(
+          content: Text(l10n.selectBothTeacherClass),
           backgroundColor: Colors.orange,
         ),
       );
@@ -389,23 +926,34 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       print('Saving schedule: day=$day, timeSlot=$timeSlot, subject=$subject');
       print('Teacher ID: $selectedTeacher, Class ID: $selectedClass');
 
-      // Check for conflicts
-      final hasConflict = await _checkForConflicts(
-          day, timeSlot, selectedTeacher!, selectedClass!);
+      // Debug: Show what's currently in this time slot
+      await _debugCurrentAssignments(day, timeSlot);
 
-      if (hasConflict) {
-        print('Conflict detected during save');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Conflict detected! Teacher or class already assigned at this time.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+      // Check for conflicts only if overwrite is not explicitly allowed
+      if (!allowOverwrite) {
+        final conflictResult = await _checkForConflicts(
+            day, timeSlot, selectedTeacher!, selectedClass!);
 
-      // Check if entry already exists for this combination
+        if (conflictResult['hasConflict'] == true) {
+          print('Conflict detected during save: ${conflictResult['message']}');
+          print('Teacher conflict: ${conflictResult['teacherConflict']}');
+          print('Class conflict: ${conflictResult['classConflict']}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(conflictResult['message'] ??
+                  'Conflict detected! Teacher or class already assigned at this time.'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
+      } else {
+        print('Overwrite allowed - skipping conflict check');
+        // When overwriting, we need to remove conflicting assignments
+        await _removeConflictingAssignments(
+            day, timeSlot, selectedTeacher!, selectedClass!);
+      } // Check if entry already exists for this combination
       final query = QueryBuilder<ParseObject>(ParseObject('Schedule'));
       final teacherPointer = ParseObject('Teacher')..objectId = selectedTeacher;
       final classPointer = ParseObject('Class')..objectId = selectedClass;
@@ -441,6 +989,26 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
 
       final saveResponse = await scheduleEntry.save();
       if (saveResponse.success) {
+        // Clear cache for this specific timetable to force refresh
+        await CacheService.clearSpecificTimetable(
+          teacherId: selectedTeacher!,
+          classId: selectedClass!,
+        );
+
+        // Clear hybrid caches that might be affected by this change
+        print('DEBUG: Clearing related caches...');
+
+        // Clear general timetable cache to force fresh loading of all related data
+        await CacheService.clearTimetableCache();
+
+        // Clear teacher detail cache to refresh teacher-specific data
+        await CacheService.clearTeacherDetail(teacherId: selectedTeacher!);
+
+        print('DEBUG: Cache clearing completed');
+
+        // Preemptively warm up cache for next likely queries
+        _warmUpRelatedCaches();
+
         setState(() {
           // Update the correct schedule based on time slot
           if (scheduleData.containsKey(timeSlot)) {
@@ -450,8 +1018,8 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Schedule saved successfully'),
+          SnackBar(
+            content: Text(l10n.scheduleSavedSuccess),
             backgroundColor: Colors.green,
           ),
         );
@@ -496,6 +1064,12 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           response.results!.isNotEmpty) {
         final deleteResponse = await response.results!.first.delete();
         if (deleteResponse.success) {
+          // Clear cache for this specific timetable to force refresh
+          await CacheService.clearSpecificTimetable(
+            teacherId: selectedTeacher!,
+            classId: selectedClass!,
+          );
+
           setState(() {
             // Clear the correct schedule based on time slot
             if (scheduleData.containsKey(timeSlot)) {
@@ -520,12 +1094,35 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     // Choose colors based on morning/afternoon
     Color primaryColor = isAfternoon ? Colors.orange[900]! : Colors.blue[900]!;
     Color greyColor = Colors.grey[600]!;
+    Color assignedColor = isAfternoon ? Colors.orange[700]! : Colors.blue[700]!;
+    Color conflictColor = isAfternoon ? Colors.red[700]! : Colors.red[600]!;
 
-    // Check if text contains a teacher name (has newline)
+    // Check if text contains a checkmark (assigned subject)
+    bool isAssignedSubject = text.contains(' ✓');
+
+    // Check if text contains class info in parentheses (conflict indicator)
+    bool isConflict = text.contains('(') && text.contains(')');
+
+    // Check if text contains a teacher name or class info (has newline)
     if (text.contains('\n')) {
       final parts = text.split('\n');
       final subject = parts[0];
-      final teacherName = parts.length > 1 ? parts[1] : '';
+      final additionalInfo = parts.length > 1 ? parts[1] : '';
+
+      // Determine the color and style based on the type of entry
+      Color subjectColor;
+      FontWeight subjectWeight;
+
+      if (isAssignedSubject) {
+        subjectColor = assignedColor;
+        subjectWeight = FontWeight.w700;
+      } else if (isConflict) {
+        subjectColor = conflictColor;
+        subjectWeight = FontWeight.w600;
+      } else {
+        subjectColor = primaryColor;
+        subjectWeight = FontWeight.w600;
+      }
 
       return RichText(
         textAlign: TextAlign.center,
@@ -535,30 +1132,45 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
               text: subject,
               style: TextStyle(
                 fontSize: 11,
-                color: primaryColor,
-                fontWeight: FontWeight.w600,
+                color: subjectColor,
+                fontWeight: subjectWeight,
               ),
             ),
-            if (teacherName.isNotEmpty)
+            if (additionalInfo.isNotEmpty)
               TextSpan(
-                text: '\n$teacherName',
+                text: '\n$additionalInfo',
                 style: TextStyle(
-                  fontSize: 8, // Smaller font for teacher name
-                  color: greyColor,
-                  fontWeight: FontWeight.normal,
+                  fontSize: 8, // Smaller font for additional info
+                  color: isConflict ? conflictColor : greyColor,
+                  fontWeight: isConflict ? FontWeight.w500 : FontWeight.normal,
+                  fontStyle: isConflict ? FontStyle.italic : FontStyle.normal,
                 ),
               ),
           ],
         ),
       );
     } else {
-      // Single line text (no teacher name)
+      // Single line text (no additional info)
+      Color textColor;
+      FontWeight textWeight;
+
+      if (isAssignedSubject) {
+        textColor = assignedColor;
+        textWeight = FontWeight.w700;
+      } else if (isEmpty) {
+        textColor = greyColor;
+        textWeight = FontWeight.normal;
+      } else {
+        textColor = primaryColor;
+        textWeight = FontWeight.w600;
+      }
+
       return Text(
         text,
         style: TextStyle(
           fontSize: 11,
-          color: isEmpty ? greyColor : primaryColor,
-          fontWeight: isEmpty ? FontWeight.normal : FontWeight.w600,
+          color: textColor,
+          fontWeight: textWeight,
         ),
         textAlign: TextAlign.center,
         maxLines: 2,
@@ -567,7 +1179,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     }
   }
 
-  void _showSubjectDialog(String day, String timeSlot) {
+  void _showSubjectDialog(String day, String timeSlot) async {
     // Determine which schedule this time slot belongs to
     String currentValue;
     if (scheduleData.containsKey(timeSlot)) {
@@ -576,16 +1188,42 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       currentValue = afternoonScheduleData[timeSlot]![day] ?? '';
     }
 
-    // Extract just the subject name for editing (remove teacher info)
-    String subjectOnly = currentValue.split('\n').first;
+    // Extract just the subject name for editing (remove teacher info and checkmark)
+    String subjectOnly = currentValue.split('\n').first.replaceAll(' ✓', '');
+    // Also remove class info in parentheses for conflicts
+    subjectOnly = subjectOnly.replaceAll(RegExp(r'\s*\([^)]*\)'), '');
     final controller = TextEditingController(text: subjectOnly);
 
-    // Check if this slot has an entry by another teacher
-    // If there's a newline with a teacher name, it's from another teacher
-    bool hasOtherTeacherEntry = currentValue.contains('\n') &&
+    // Check if this slot has a teacher conflict (teaching another class)
+    bool hasTeacherConflict = currentValue.contains('\n') &&
         currentValue.split('\n').length > 1 &&
         selectedTeacher != null &&
         selectedClass != null;
+
+    String conflictClass = '';
+    if (hasTeacherConflict) {
+      final parts = currentValue.split('\n');
+      if (parts.length > 1) {
+        // Extract class name from parentheses like "(1 A)"
+        conflictClass = parts[1].replaceAll(RegExp(r'[()]'), '');
+      }
+    }
+
+    // Get teacher's assigned subjects if both teacher and class are selected
+    List<String> assignedSubjects = [];
+    String? selectedSubject = subjectOnly.isNotEmpty ? subjectOnly : null;
+
+    if (selectedTeacher != null && selectedClass != null && isAdmin) {
+      try {
+        final teacherSubjects =
+            await _getTeacherAssignedSubjects(selectedTeacher!, selectedClass!);
+        assignedSubjects = teacherSubjects.values.toList();
+        print(
+            'DEBUG: Available assigned subjects for dialog: $assignedSubjects');
+      } catch (e) {
+        print('ERROR: Failed to get assigned subjects for dialog: $e');
+      }
+    }
 
     showDialog(
       context: context,
@@ -611,19 +1249,35 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
                   ),
                 ),
               ),
-            ] else if (hasOtherTeacherEntry) ...[
+            ] else if (hasTeacherConflict) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.orange[100],
+                  color: Colors.red[100],
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Text(
-                  'OTHER TEACHER',
+                  'CONFLICT',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: Colors.orange,
+                    color: Colors.red,
+                  ),
+                ),
+              ),
+            ] else if (hasTeacherConflict) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'CONFLICT',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
                   ),
                 ),
               ),
@@ -634,7 +1288,47 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (currentValue.isNotEmpty && hasOtherTeacherEntry) ...[
+            // Show conflict warning
+            if (hasTeacherConflict) ...[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '⚠️ Teacher Conflict Detected:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Teacher is already teaching "$subjectOnly" for class "$conflictClass" at this time',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Assigning here will create a scheduling conflict!',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.red[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (currentValue.isNotEmpty && hasTeacherConflict) ...[
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -671,11 +1365,89 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
               ),
               const SizedBox(height: 8),
             ],
+
+            // Show assigned subjects info if available
+            if (assignedSubjects.isNotEmpty &&
+                selectedTeacher != null &&
+                selectedClass != null) ...[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Teacher\'s Assigned Subjects for this Class:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      assignedSubjects.join(', '),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Dropdown for assigned subjects
+              DropdownButtonFormField<String>(
+                value: assignedSubjects.contains(selectedSubject)
+                    ? selectedSubject
+                    : null,
+                decoration: const InputDecoration(
+                  labelText: 'Select Assigned Subject',
+                  border: OutlineInputBorder(),
+                  helperText: 'Choose from teacher\'s assigned subjects',
+                ),
+                items: [
+                  // Add empty option
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('-- Clear Subject --'),
+                  ),
+                  // Add assigned subjects
+                  ...assignedSubjects.map((subject) => DropdownMenuItem<String>(
+                        value: subject,
+                        child: Text(subject),
+                      )),
+                ],
+                onChanged: isAdmin
+                    ? (String? value) {
+                        selectedSubject = value;
+                        controller.text = value ?? '';
+                      }
+                    : null,
+              ),
+
+              const SizedBox(height: 8),
+              const Text(
+                'Or enter custom subject:',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
+
+            // Text field for custom input
             TextField(
               controller: controller,
               decoration: InputDecoration(
                 hintText: selectedClass != null
-                    ? 'Enter subject name for selected class'
+                    ? (assignedSubjects.isNotEmpty
+                        ? 'Enter custom subject or use dropdown above'
+                        : 'Enter subject name for selected class')
                     : 'Enter subject name',
                 border: const OutlineInputBorder(),
                 helperText: selectedClass != null
@@ -696,9 +1468,17 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
             TextButton(
               onPressed: () async {
                 Navigator.pop(context);
-                await _saveScheduleEntry(day, timeSlot, controller.text.trim());
+                await _saveScheduleEntry(
+                  day,
+                  timeSlot,
+                  controller.text.trim(),
+                  allowOverwrite: hasTeacherConflict,
+                );
               },
-              child: Text(hasOtherTeacherEntry ? 'Overwrite' : 'Save'),
+              style: TextButton.styleFrom(
+                foregroundColor: hasTeacherConflict ? Colors.red : null,
+              ),
+              child: Text(hasTeacherConflict ? 'Create Conflict' : 'Save'),
             ),
             if (currentValue.isNotEmpty)
               TextButton(
@@ -722,314 +1502,499 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Class Schedule'),
-        backgroundColor: Colors.blue[900],
-        foregroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false, // Remove back button
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Header Card
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[400]!, width: 2),
-                ),
-                child: const Text(
-                  'CLASS SCHEDULE',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                    letterSpacing: 2,
+    final l10n = AppLocalizations.of(context)!;
+
+    return Consumer<LanguageService>(
+      builder: (context, languageService, child) {
+        return Scaffold(
+          backgroundColor: Colors.grey[100],
+          appBar: AppBar(
+            title: Text(l10n.classSchedule),
+            backgroundColor: Colors.blue[900],
+            foregroundColor: Colors.white,
+            elevation: 0,
+            automaticallyImplyLeading: false, // Remove back button
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                // Header Card
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Name and Class Row - Conditional for role
-            if (isAdmin) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[400]!, width: 2),
+                    ),
+                    child: Text(
+                      l10n.classSchedule.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                        letterSpacing: 2,
                       ),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border:
-                              Border.all(color: Colors.grey[400]!, width: 1),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'TEACHER:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black54,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            isLoadingData
-                                ? const CircularProgressIndicator()
-                                : SizedBox(
-                                    width: double.infinity,
-                                    child: DropdownButtonFormField<String>(
-                                      value: selectedTeacher,
-                                      isExpanded: true,
-                                      decoration: const InputDecoration(
-                                        border: InputBorder.none,
-                                        hintText: 'Select teacher',
-                                        hintStyle:
-                                            TextStyle(color: Colors.grey),
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                      items: teachers.map((teacher) {
-                                        return DropdownMenuItem<String>(
-                                          value: teacher['id'],
-                                          child: Text(
-                                            teacher['name'],
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                            style:
-                                                const TextStyle(fontSize: 14),
-                                          ),
-                                        );
-                                      }).toList(),
-                                      onChanged: (String? value) {
-                                        setState(() {
-                                          selectedTeacher = value;
-                                        });
-                                        _loadScheduleData();
-                                      },
-                                    ),
-                                  ),
-                          ],
-                        ),
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border:
-                              Border.all(color: Colors.grey[400]!, width: 1),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'CLASS:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black54,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            isLoadingData
-                                ? const CircularProgressIndicator()
-                                : SizedBox(
-                                    width: double.infinity,
-                                    child: DropdownButtonFormField<String>(
-                                      value: selectedClass,
-                                      isExpanded: true,
-                                      decoration: const InputDecoration(
-                                        border: InputBorder.none,
-                                        hintText: 'Select class',
-                                        hintStyle:
-                                            TextStyle(color: Colors.grey),
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                      items: classes.map((classItem) {
-                                        return DropdownMenuItem<String>(
-                                          value: classItem['id'],
-                                          child: Text(
-                                            classItem['name'],
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                            style:
-                                                const TextStyle(fontSize: 14),
-                                          ),
-                                        );
-                                      }).toList(),
-                                      onChanged: (String? value) {
-                                        setState(() {
-                                          selectedClass = value;
-                                        });
-                                        _loadScheduleData();
-                                      },
-                                    ),
-                                  ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-
-            // Teacher View - Show selected teacher name only
-            if (isTeacher) ...[
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue[200]!, width: 2),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+
+                const SizedBox(height: 16),
+
+                // Name and Class Row - Conditional for role
+                if (isAdmin) ...[
+                  Row(
                     children: [
-                      const Text(
-                        'TEACHER SCHEDULE:',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black54,
+                      Expanded(
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: Colors.grey[400]!, width: 1),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${l10n.teacher.toUpperCase()}:',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                isLoadingData
+                                    ? const CircularProgressIndicator()
+                                    : SizedBox(
+                                        width: double.infinity,
+                                        child: DropdownButtonFormField<String>(
+                                          value: selectedTeacher,
+                                          isExpanded: true,
+                                          decoration: InputDecoration(
+                                            border: InputBorder.none,
+                                            hintText: l10n.selectTeacher,
+                                            hintStyle: const TextStyle(
+                                                color: Colors.grey),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                          items: teachers.map((teacher) {
+                                            return DropdownMenuItem<String>(
+                                              value: teacher['id'],
+                                              child: Text(
+                                                teacher['name'],
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                                style: const TextStyle(
+                                                    fontSize: 14),
+                                              ),
+                                            );
+                                          }).toList(),
+                                          onChanged: (String? value) {
+                                            setState(() {
+                                              selectedTeacher = value;
+                                            });
+                                            _loadScheduleData();
+                                          },
+                                        ),
+                                      ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        teachers.isNotEmpty && selectedTeacher != null
-                            ? teachers.firstWhere(
-                                (t) => t['id'] == selectedTeacher,
-                                orElse: () => {'name': 'Loading...'})['name']
-                            : 'Loading teacher information...',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'VIEW ONLY MODE',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: Colors.grey[400]!, width: 1),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${l10n.classLabel.toUpperCase()}:',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                isLoadingData
+                                    ? const CircularProgressIndicator()
+                                    : SizedBox(
+                                        width: double.infinity,
+                                        child: DropdownButtonFormField<String>(
+                                          value: selectedClass,
+                                          isExpanded: true,
+                                          decoration: InputDecoration(
+                                            border: InputBorder.none,
+                                            hintText: l10n.selectClass,
+                                            hintStyle: const TextStyle(
+                                                color: Colors.grey),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                          items: classes.map((classItem) {
+                                            return DropdownMenuItem<String>(
+                                              value: classItem['id'],
+                                              child: Text(
+                                                classItem['name'],
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                                style: const TextStyle(
+                                                    fontSize: 14),
+                                              ),
+                                            );
+                                          }).toList(),
+                                          onChanged: (String? value) {
+                                            setState(() {
+                                              selectedClass = value;
+                                            });
+                                            _loadScheduleData();
+                                          },
+                                        ),
+                                      ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
+                ],
 
-            const SizedBox(height: 16),
-
-            // Morning Schedule Title
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: const Text(
-                'MORNING SCHEDULE (7:00 AM - 12:00 PM)',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                ),
-              ),
-            ),
-
-            // Schedule Table
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[400]!, width: 2),
-                ),
-                child: Column(
-                  children: [
-                    // Header Row (Days)
-                    Container(
+                // Teacher View - Show selected teacher name only
+                if (isTeacher) ...[
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(10),
-                          topRight: Radius.circular(10),
-                        ),
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!, width: 2),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Time column header
-                          Container(
-                            width: 70,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              border: Border(
-                                right: BorderSide(
-                                    color: Colors.grey[400]!, width: 1),
-                                bottom: BorderSide(
-                                    color: Colors.grey[400]!, width: 1),
-                              ),
-                            ),
-                            child: const Text(
-                              'TIME',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                              textAlign: TextAlign.center,
+                          Text(
+                            '${l10n.teacherSchedule.toUpperCase()}:',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black54,
                             ),
                           ),
-                          // Day headers
-                          ...weekDays
-                              .map((day) => Expanded(
+                          const SizedBox(height: 8),
+                          Text(
+                            teachers.isNotEmpty && selectedTeacher != null
+                                ? teachers.firstWhere(
+                                    (t) => t['id'] == selectedTeacher,
+                                    orElse: () =>
+                                        {'name': 'Loading...'})['name']
+                                : 'Loading teacher information...',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.green[100],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              l10n.viewOnlyMode,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    l10n.morningSchedule,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ),
+
+                // Schedule Table
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[400]!, width: 2),
+                    ),
+                    child: Column(
+                      children: [
+                        // Header Row (Days)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(10),
+                              topRight: Radius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // Time column header
+                              Container(
+                                width: 70,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    right: BorderSide(
+                                        color: Colors.grey[400]!, width: 1),
+                                    bottom: BorderSide(
+                                        color: Colors.grey[400]!, width: 1),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'TIME',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              // Day headers
+                              ...weekDays
+                                  .map((day) => Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              right: day != weekDays.last
+                                                  ? BorderSide(
+                                                      color: Colors.grey[400]!,
+                                                      width: 1)
+                                                  : BorderSide.none,
+                                              bottom: BorderSide(
+                                                  color: Colors.grey[400]!,
+                                                  width: 1),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            day,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black87,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ))
+                                  .toList(),
+                            ],
+                          ),
+                        ),
+
+                        // Time Slot Rows
+                        ...timeSlots
+                            .map((time) => Container(
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: time != timeSlots.last
+                                          ? BorderSide(
+                                              color: Colors.grey[400]!,
+                                              width: 1)
+                                          : BorderSide.none,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Time cell
+                                      Container(
+                                        width: 70,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[100],
+                                          border: Border(
+                                            right: BorderSide(
+                                                color: Colors.grey[400]!,
+                                                width: 1),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          time,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.black87,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                      // Subject cells
+                                      ...weekDays
+                                          .map((day) => Expanded(
+                                                child: GestureDetector(
+                                                  onTap: () =>
+                                                      _showSubjectDialog(
+                                                          day, time),
+                                                  child: Container(
+                                                    height: 50,
+                                                    padding:
+                                                        const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      border: Border(
+                                                        right: day !=
+                                                                weekDays.last
+                                                            ? BorderSide(
+                                                                color: Colors
+                                                                    .grey[400]!,
+                                                                width: 1)
+                                                            : BorderSide.none,
+                                                      ),
+                                                      color: scheduleData[
+                                                                  time]![day]!
+                                                              .isNotEmpty
+                                                          ? Colors.blue[50]
+                                                          : Colors.transparent,
+                                                    ),
+                                                    child: Center(
+                                                      child: _buildScheduleText(
+                                                        scheduleData[time]![
+                                                                day] ??
+                                                            '',
+                                                        scheduleData[time]![
+                                                                day]!
+                                                            .isEmpty,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ))
+                                          .toList(),
+                                    ],
+                                  ),
+                                ))
+                            .toList(),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    l10n.afternoonSchedule,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
+                  ),
+                ),
+
+                // Afternoon Schedule Table
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[400]!, width: 2),
+                    ),
+                    child: Column(
+                      children: [
+                        // Header Row (Days) - Afternoon
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.orange[100],
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(10),
+                              topRight: Radius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              // Time column header
+                              Container(
+                                width: 70,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    right: BorderSide(
+                                        color: Colors.grey[400]!, width: 1),
+                                    bottom: BorderSide(
+                                        color: Colors.grey[400]!, width: 1),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'TIME',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              // Day headers
+                              ...weekDays.map((day) => Expanded(
                                     child: Container(
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
@@ -1054,360 +2019,214 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
                                         textAlign: TextAlign.center,
                                       ),
                                     ),
-                                  ))
-                              .toList(),
-                        ],
-                      ),
-                    ),
-
-                    // Time Slot Rows
-                    ...timeSlots
-                        .map((time) => Container(
-                              decoration: BoxDecoration(
-                                border: Border(
-                                  bottom: time != timeSlots.last
-                                      ? BorderSide(
-                                          color: Colors.grey[400]!, width: 1)
-                                      : BorderSide.none,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  // Time cell
-                                  Container(
-                                    width: 70,
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[100],
-                                      border: Border(
-                                        right: BorderSide(
-                                            color: Colors.grey[400]!, width: 1),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      time,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black87,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                  // Subject cells
-                                  ...weekDays
-                                      .map((day) => Expanded(
-                                            child: GestureDetector(
-                                              onTap: () =>
-                                                  _showSubjectDialog(day, time),
-                                              child: Container(
-                                                height: 50,
-                                                padding:
-                                                    const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  border: Border(
-                                                    right: day != weekDays.last
-                                                        ? BorderSide(
-                                                            color: Colors
-                                                                .grey[400]!,
-                                                            width: 1)
-                                                        : BorderSide.none,
-                                                  ),
-                                                  color:
-                                                      scheduleData[time]![day]!
-                                                              .isNotEmpty
-                                                          ? Colors.blue[50]
-                                                          : Colors.transparent,
-                                                ),
-                                                child: Center(
-                                                  child: _buildScheduleText(
-                                                    scheduleData[time]![day] ??
-                                                        '',
-                                                    scheduleData[time]![day]!
-                                                        .isEmpty,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ))
-                                      .toList(),
-                                ],
-                              ),
-                            ))
-                        .toList(),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Afternoon Schedule Title
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: const Text(
-                'AFTERNOON SCHEDULE (1:00 PM - 5:00 PM)',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange,
-                ),
-              ),
-            ),
-
-            // Afternoon Schedule Table
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[400]!, width: 2),
-                ),
-                child: Column(
-                  children: [
-                    // Header Row (Days) - Afternoon
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.orange[100],
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(10),
-                          topRight: Radius.circular(10),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          // Time column header
-                          Container(
-                            width: 70,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              border: Border(
-                                right: BorderSide(
-                                    color: Colors.grey[400]!, width: 1),
-                                bottom: BorderSide(
-                                    color: Colors.grey[400]!, width: 1),
-                              ),
-                            ),
-                            child: const Text(
-                              'TIME',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                                  )),
+                            ],
                           ),
-                          // Day headers
-                          ...weekDays.map((day) => Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
+                        ),
+                        // Time slots rows - Afternoon
+                        ...afternoonTimeSlots
+                            .map((time) => Container(
                                   decoration: BoxDecoration(
                                     border: Border(
-                                      right: day != weekDays.last
+                                      bottom: time != afternoonTimeSlots.last
                                           ? BorderSide(
                                               color: Colors.grey[400]!,
                                               width: 1)
                                           : BorderSide.none,
-                                      bottom: BorderSide(
-                                          color: Colors.grey[400]!, width: 1),
                                     ),
                                   ),
-                                  child: Text(
-                                    day,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              )),
-                        ],
-                      ),
-                    ),
-                    // Time slots rows - Afternoon
-                    ...afternoonTimeSlots
-                        .map((time) => Container(
-                              decoration: BoxDecoration(
-                                border: Border(
-                                  bottom: time != afternoonTimeSlots.last
-                                      ? BorderSide(
-                                          color: Colors.grey[400]!, width: 1)
-                                      : BorderSide.none,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  // Time cell
-                                  Container(
-                                    width: 70,
-                                    height: 50,
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange[50],
-                                      border: Border(
-                                        right: BorderSide(
-                                            color: Colors.grey[400]!, width: 1),
-                                      ),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        time,
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
+                                  child: Row(
+                                    children: [
+                                      // Time cell
+                                      Container(
+                                        width: 70,
+                                        height: 50,
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange[50],
+                                          border: Border(
+                                            right: BorderSide(
+                                                color: Colors.grey[400]!,
+                                                width: 1),
+                                          ),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            time,
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                    ),
+                                      // Day cells
+                                      ...weekDays
+                                          .map((day) => Expanded(
+                                                child: GestureDetector(
+                                                  onTap: () =>
+                                                      _showSubjectDialog(
+                                                          day, time),
+                                                  child: Container(
+                                                    height: 50,
+                                                    padding:
+                                                        const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      border: Border(
+                                                        right: day !=
+                                                                weekDays.last
+                                                            ? BorderSide(
+                                                                color: Colors
+                                                                    .grey[400]!,
+                                                                width: 1)
+                                                            : BorderSide.none,
+                                                      ),
+                                                      color:
+                                                          afternoonScheduleData[
+                                                                          time]![
+                                                                      day]!
+                                                                  .isNotEmpty
+                                                              ? Colors
+                                                                  .orange[50]
+                                                              : Colors
+                                                                  .transparent,
+                                                    ),
+                                                    child: Center(
+                                                      child: _buildScheduleText(
+                                                        afternoonScheduleData[
+                                                                time]![day] ??
+                                                            '',
+                                                        afternoonScheduleData[
+                                                                time]![day]!
+                                                            .isEmpty,
+                                                        isAfternoon: true,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ))
+                                          .toList(),
+                                    ],
                                   ),
-                                  // Day cells
-                                  ...weekDays
-                                      .map((day) => Expanded(
-                                            child: GestureDetector(
-                                              onTap: () =>
-                                                  _showSubjectDialog(day, time),
-                                              child: Container(
-                                                height: 50,
-                                                padding:
-                                                    const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  border: Border(
-                                                    right: day != weekDays.last
-                                                        ? BorderSide(
-                                                            color: Colors
-                                                                .grey[400]!,
-                                                            width: 1)
-                                                        : BorderSide.none,
-                                                  ),
-                                                  color: afternoonScheduleData[
-                                                              time]![day]!
-                                                          .isNotEmpty
-                                                      ? Colors.orange[50]
-                                                      : Colors.transparent,
-                                                ),
-                                                child: Center(
-                                                  child: _buildScheduleText(
-                                                    afternoonScheduleData[
-                                                            time]![day] ??
-                                                        '',
-                                                    afternoonScheduleData[
-                                                            time]![day]!
-                                                        .isEmpty,
-                                                    isAfternoon: true,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ))
-                                      .toList(),
-                                ],
-                              ),
-                            ))
-                        .toList(),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Action Buttons - Only for Admin
-            if (isAdmin) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _clearSchedule,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red[600],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'Clear Schedule',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                                ))
+                            .toList(),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _saveSchedule,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[900],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Action Buttons - Only for Admin
+                if (isAdmin) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _clearSchedule,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red[600],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: Text(
+                            l10n.clearSchedule,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ),
-                      child: const Text(
-                        'Save Schedule',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _saveSchedule,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[900],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: Text(
+                            l10n.saveSchedule,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       ),
+                    ],
+                  ),
+                ],
+
+                // Teacher View Info
+                if (isTeacher) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!, width: 1),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.visibility,
+                          color: Colors.blue,
+                          size: 32,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.scheduleViewOnly,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.assignedTeachingSchedule,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-            ],
-
-            // Teacher View Info
-            if (isTeacher) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[200]!, width: 1),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.visibility,
-                      color: Colors.blue,
-                      size: 32,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Schedule View Only',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'This is your assigned teaching schedule.\nClick any cell to view details.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-      bottomNavigationBar: AppBottomNavigation(
-        currentIndex: 1, // Schedule/Teachers tab
-        userRole: currentUserRole,
-      ),
+              ],
+            ),
+          ),
+          bottomNavigationBar: AppBottomNavigation(
+            currentIndex: 1, // Schedule/Teachers tab
+            userRole: currentUserRole,
+          ),
+        );
+      },
     );
+  }
+
+  Future<void> _refreshTimetable() async {
+    setState(() {
+      isLoadingData = true;
+    });
+
+    // Clear all timetable cache
+    await CacheService.clearTimetableCache();
+
+    // Reload all data
+    await _loadData();
+
+    // Reload schedule data if selections exist
+    if (selectedTeacher != null || selectedClass != null) {
+      await _loadScheduleData();
+    }
   }
 
   void _clearSchedule() {
@@ -1462,5 +2281,53 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
         backgroundColor: Colors.green,
       ),
     );
+  }
+
+  /// Preemptively warm up caches for related data that user might access next
+  void _warmUpRelatedCaches() {
+    if (selectedTeacher == null || selectedClass == null) return;
+
+    // Background cache warming - don't await to avoid blocking UI
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      try {
+        print('DEBUG: Starting cache warm-up for related data...');
+
+        // Warm up teacher's schedule across other classes
+        for (var classData in classes) {
+          final classId = classData['objectId'] as String?;
+          if (classId != null && classId != selectedClass) {
+            final cachedData = CacheService.getTimetableData(
+              teacherId: selectedTeacher!,
+              classId: classId,
+            );
+            if (cachedData == null) {
+              // Cache miss - could preload this data
+              print(
+                  'DEBUG: Cache miss for teacher $selectedTeacher in class $classId');
+            }
+          }
+        }
+
+        // Warm up other teachers' schedules in current class
+        for (var teacherData in teachers) {
+          final teacherId = teacherData['objectId'] as String?;
+          if (teacherId != null && teacherId != selectedTeacher) {
+            final cachedData = CacheService.getTimetableData(
+              teacherId: teacherId,
+              classId: selectedClass!,
+            );
+            if (cachedData == null) {
+              // Cache miss - could preload this data
+              print(
+                  'DEBUG: Cache miss for teacher $teacherId in class $selectedClass');
+            }
+          }
+        }
+
+        print('DEBUG: Cache warm-up analysis completed');
+      } catch (e) {
+        print('DEBUG: Cache warm-up error (non-blocking): $e');
+      }
+    });
   }
 }

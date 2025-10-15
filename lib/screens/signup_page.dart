@@ -1,3 +1,7 @@
+// NOTE: This signup functionality has been disabled for App Store compliance
+// Public account creation is not allowed to prevent unauthorized access to student data
+// All user accounts should be created and managed by school administrators
+
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive/hive.dart';

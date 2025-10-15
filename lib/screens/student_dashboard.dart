@@ -5,6 +5,7 @@ import 'add_student_information_screen.dart';
 import '../services/class_service.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 class StudentDashboard extends StatefulWidget {
   final int currentIndex;
@@ -21,6 +22,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   String searchQuery = '';
   String error = '';
   String? userRole; // Add userRole field
+  int _refreshCounter = 0; // Add refresh counter to force rebuilds
 
   @override
   void initState() {
@@ -63,7 +65,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
       }
     } catch (e) {
       setState(() {
-        error = 'Failed to load cached students: \\${e.toString()}';
+        error =
+            '${AppLocalizations.of(context)!.failedToLoadCachedStudents}: ${e.toString()}';
         loading = false;
       });
     }
@@ -87,7 +90,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
     } catch (e) {
       setState(() {
         loading = false;
-        error = 'Error loading students: \\${e.toString()}';
+        error =
+            '${AppLocalizations.of(context)!.errorLoadingStudents}: ${e.toString()}';
       });
     }
   }
@@ -115,118 +119,477 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   Future<Uint8List?> _getStudentImage(String studentId, String imageUrl) async {
     final box = Hive.box('studentImages');
+
+    // Check cache first, but allow forcing refresh
     final cached = box.get(studentId);
     if (cached != null) {
+      print('🖼️ Using cached image for student: $studentId');
       return Uint8List.fromList(List<int>.from(cached));
     }
-    if (imageUrl.isNotEmpty && imageUrl.startsWith('http')) {
+
+    // Validate URL before attempting to load
+    if (imageUrl.isNotEmpty &&
+        imageUrl.startsWith('http') &&
+        Uri.tryParse(imageUrl) != null) {
       try {
+        print(
+            '🌐 Loading fresh image for student: $studentId from: ${imageUrl.substring(0, 50)}...');
         final response = await http.get(Uri.parse(imageUrl));
         if (response.statusCode == 200) {
           await box.put(studentId, response.bodyBytes);
+          print('✅ Cached new image for student: $studentId');
           return response.bodyBytes;
+        } else {
+          print('❌ Failed to load image: HTTP ${response.statusCode}');
         }
-      } catch (_) {}
+      } catch (e) {
+        print('❌ Error loading image for student $studentId: $e');
+      }
+    } else {
+      print('❌ Invalid image URL for student $studentId: $imageUrl');
     }
     return null;
+  }
+
+  // Force refresh a specific student's image
+  Future<void> _refreshStudentImage(String studentId) async {
+    final box = Hive.box('studentImages');
+    await box.delete(studentId);
+    // Trigger a rebuild to reload the image
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  // Clear all image caches
+  Future<void> _clearAllImageCaches() async {
+    try {
+      final box = Hive.box('studentImages');
+      await box.clear();
+      print('Cleared all image caches');
+    } catch (e) {
+      print('Error clearing image caches: $e');
+    }
+  }
+
+  // Helper method to validate image URLs
+  bool _isValidImageUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    if (!url.startsWith('http')) return false;
+    try {
+      final uri = Uri.parse(url);
+      return uri.host.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> _deleteStudent(String studentId, String studentName) async {
+    // Show confirmation dialog
+    bool? shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange[600]),
+              const SizedBox(width: 12),
+              const Text('Confirm Deletion'),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to delete "$studentName"? This action cannot be undone.',
+            style: const TextStyle(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[600],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child:
+                  const Text('Delete', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete == true) {
+      try {
+        // Show loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Text('Deleting $studentName...'),
+              ],
+            ),
+            backgroundColor: Colors.orange[600],
+          ),
+        );
+
+        // Delete from Parse Server
+        final query = QueryBuilder<ParseObject>(ParseObject('Student'))
+          ..whereEqualTo('objectId', studentId);
+        final response = await query.query();
+
+        if (response.success &&
+            response.results != null &&
+            response.results!.isNotEmpty) {
+          final student = response.results!.first as ParseObject;
+          final deleteResponse = await student.delete();
+
+          if (deleteResponse.success) {
+            // Remove from local cache
+            setState(() {
+              allStudents.removeWhere((s) => s['objectId'] == studentId);
+              filteredStudents = _filterStudents(searchQuery);
+            });
+
+            // Update Hive cache
+            final box = await Hive.openBox('studentListBox');
+            await box.put('studentList', allStudents);
+
+            // Show success message
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Text('$studentName deleted successfully'),
+                  ],
+                ),
+                backgroundColor: Colors.green[600],
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          } else {
+            throw Exception('Failed to delete student from server');
+          }
+        } else {
+          throw Exception('Student not found');
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Error deleting student: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red[600],
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editStudent(Map<String, dynamic> studentData) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddStudentInformationScreen(
+          studentData: studentData,
+        ),
+      ),
+    );
+
+    // If student was updated, refresh the list and clear image cache
+    if (result == true) {
+      print('=== DASHBOARD REFRESH DEBUG ===');
+      print('Student update result: $result');
+      print('Student data passed: ${studentData['name']}');
+      print('Student ID: ${studentData['objectId']}');
+      print('Starting cache clearing process...');
+
+      // Clear ALL image caches to ensure fresh images
+      await _clearAllImageCaches();
+
+      // Clear the entire student list cache to force fresh data from server
+      final studentListBox = await Hive.openBox('studentListBox');
+      await studentListBox.delete('studentList');
+      print('Cleared student list cache');
+
+      // Force refresh the student list from server
+      await _loadStudents(forceRefresh: true);
+      print('Refreshed student list from server');
+
+      // Increment refresh counter to force FutureBuilder rebuilds
+      setState(() {
+        _refreshCounter++;
+      });
+      print('Incremented refresh counter to: $_refreshCounter');
+      print('==============================');
+    } else {
+      print('Student was not updated (result: $result)');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('search and find students',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.blue),
-            onPressed: () => _refreshStudents(),
-            tooltip: 'Refresh',
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(20),
+              bottomRight: Radius.circular(20),
+            ),
           ),
-        ],
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  Expanded(
+                    child: Text(
+                      AppLocalizations.of(context)!.searchAndFindStudents,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      onPressed: () => _refreshStudents(),
+                      tooltip: AppLocalizations.of(context)!.refresh,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          Container(
+            margin: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  spreadRadius: 1,
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
             child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Search',
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                hintText: AppLocalizations.of(context)!.search,
+                hintStyle: TextStyle(color: Colors.grey[400]),
+                prefixIcon: Icon(Icons.search, color: Colors.grey[400]),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: Colors.transparent,
                 contentPadding:
-                    EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
                 border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide:
+                      const BorderSide(color: Color(0xFF667EEA), width: 2),
                 ),
               ),
               onChanged: _onSearchChanged,
             ),
           ),
-          const SizedBox(height: 8),
           if (error.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(error, style: const TextStyle(color: Colors.red)),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red[600]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      error,
+                      style: TextStyle(
+                        color: Colors.red[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           Expanded(
             child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.separated(
-                    itemCount: filteredStudents.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 4),
-                    itemBuilder: (context, i) {
-                      final student = filteredStudents[i];
-                      final name = student['name'] ?? '';
-                      final years = student['yearsOfExperience'] ?? 0;
-                      final rating = student['rating']?.toDouble() ?? 4.5;
-                      final ratingCount = student['ratingCount'] ?? 100;
-                      final hourlyRate = student['hourlyRate'] ?? '20/hr';
-                      final photoUrl = student['photo'] ??
-                          'https://randomuser.me/api/portraits/men/1.jpg';
-                      final studentId = student['objectId'] ?? '';
-                      return FutureBuilder<Uint8List?>(
-                        future: _getStudentImage(studentId, photoUrl),
-                        builder: (context, snapshot) {
-                          return TeacherCard(
-                            name: name,
-                            role: 'Student Of Assalam',
-                            years: years,
-                            rating: rating,
-                            ratingCount: ratingCount,
-                            hourlyRate: hourlyRate,
-                            imageBytes: snapshot.data,
-                            imageUrl: photoUrl,
-                            onAdd: () {},
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
+                      strokeWidth: 3,
+                    ),
+                  )
+                : filteredStudents.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.school_outlined,
+                              size: 80,
+                              color: Colors.grey[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No students found',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[500],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                        itemCount: filteredStudents.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) {
+                          final student = filteredStudents[i];
+                          final name = student['name'] ?? '';
+                          final years = student['yearsOfExperience'] ?? 0;
+
+                          // Better fallback logic that handles empty strings
+                          final originalPhoto = student['photo'];
+                          final photoUrl = (originalPhoto == null ||
+                                  originalPhoto.toString().trim().isEmpty)
+                              ? '' // Set empty string instead of random image
+                              : originalPhoto.toString();
+
+                          final studentId = student['objectId'] ?? '';
+
+                          // Debug print
+                          print('=== DASHBOARD DEBUG ===');
+                          print('Student: $name');
+                          print('Original photo: "$originalPhoto"');
+                          print('Is null: ${originalPhoto == null}');
+                          print(
+                              'Is empty: ${originalPhoto.toString().trim().isEmpty}');
+                          print('Processed photoUrl: $photoUrl');
+                          print('======================');
+
+                          return FutureBuilder<Uint8List?>(
+                            key: ValueKey(
+                                '${studentId}_${photoUrl}_$_refreshCounter'),
+                            future: _getStudentImage(studentId, photoUrl),
+                            builder: (context, snapshot) {
+                              return TeacherCard(
+                                name: name,
+                                role: AppLocalizations.of(context)!
+                                    .studentOfAssalam,
+                                years: years,
+                                imageBytes: snapshot.data,
+                                imageUrl: photoUrl,
+                                onDelete: () => _deleteStudent(studentId, name),
+                                onTap: () {
+                                  // Create a copy of student data with the processed photo URL
+                                  final studentDataWithPhoto =
+                                      Map<String, dynamic>.from(student);
+                                  studentDataWithPhoto['photo'] = photoUrl;
+                                  _editStudent(studentDataWithPhoto);
+                                },
+                              );
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
+                      ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AddStudentInformationScreen(),
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF667EEA).withOpacity(0.3),
+              spreadRadius: 1,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
             ),
-          );
-        },
-        backgroundColor: Colors.blue,
-        tooltip: 'Add Student',
-        child: const Icon(Icons.add, color: Colors.white),
+          ],
+        ),
+        child: FloatingActionButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AddStudentInformationScreen(),
+              ),
+            );
+          },
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          tooltip: AppLocalizations.of(context)!.addStudent,
+          child: const Icon(Icons.add, color: Colors.white, size: 28),
+        ),
       ),
     );
   }
@@ -236,159 +599,227 @@ class TeacherCard extends StatelessWidget {
   final String name;
   final String role;
   final int years;
-  final double rating;
-  final int ratingCount;
+  final double? rating; // Make optional
+  final int? ratingCount; // Make optional
   final String? hourlyRate; // Make optional for student cards
   final String imageUrl;
   final Uint8List? imageBytes;
-  final VoidCallback? onAdd;
+  final VoidCallback? onDelete;
+  final VoidCallback? onTap; // Add onTap callback
   const TeacherCard({
     super.key,
     required this.name,
     required this.role,
     required this.years,
-    required this.rating,
-    required this.ratingCount,
+    this.rating, // Optional
+    this.ratingCount, // Optional
     this.hourlyRate, // Optional
     required this.imageUrl,
     this.imageBytes,
-    this.onAdd,
+    this.onDelete,
+    this.onTap, // Add onTap parameter
   });
+
+  // Helper method to validate image URLs
+  bool _isValidImageUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    if (!url.startsWith('http')) return false;
+    try {
+      final uri = Uri.parse(url);
+      return uri.host.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Widget _buildProfileImage() {
+    // If we have cached bytes, use them
+    if (imageBytes != null) {
+      return Image.memory(
+        imageBytes!,
+        width: 70,
+        height: 70,
+        fit: BoxFit.cover,
+      );
+    }
+
+    // Check if the URL is valid before trying to load it
+    if (_isValidImageUrl(imageUrl)) {
+      return Image.network(
+        imageUrl,
+        width: 70,
+        height: 70,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
+                ),
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          // Return person icon for invalid images
+          return Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.person,
+              size: 36,
+              color: Colors.grey[400],
+            ),
+          );
+        },
+      );
+    }
+
+    // Return person icon for invalid or empty URLs
+    return Container(
+      width: 70,
+      height: 70,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(
+        Icons.person,
+        size: 36,
+        color: Colors.grey[400],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 3,
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: imageBytes != null
-                  ? Image.memory(
-                      imageBytes!,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    )
-                  : Image.network(
-                      imageUrl,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Container(
-                          width: 60,
-                          height: 60,
-                          color: Colors.grey[300],
-                          child: const Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        print('Error loading student image: $error');
-                        return Container(
-                          width: 60,
-                          height: 60,
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.person,
-                              size: 32, color: Colors.grey),
-                        );
-                      },
-                    ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 15,
+              offset: const Offset(0, 5),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.work, size: 16, color: Colors.orange),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(role,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1),
-                      ),
-                    ],
-                  ),
-                  Text(name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1),
-                  Text('$years years of experience',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1),
-                  Row(
-                    children: [
-                      const Icon(Icons.star, color: Colors.orange, size: 16),
-                      Text('${rating.toStringAsFixed(1)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(' ($ratingCount)',
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey)),
-                      if (hourlyRate != null) ...[
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.orange,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(hourlyRate!,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  // Additional student info fields (address, phone, etc.)
-                  if (imageBytes == null) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            imageUrl,
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ),
-                      ],
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.2),
+                      spreadRadius: 1,
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
                   ],
-                ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _buildProfileImage(),
+                ),
               ),
-            ),
-            if (onAdd != null)
-              IconButton(
-                icon:
-                    const Icon(Icons.add_circle_outline, color: Colors.orange),
-                onPressed: onAdd,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.school,
+                              size: 14, color: Colors.orange[600]),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              role,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Color(0xFF2D3748),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$years ${AppLocalizations.of(context)!.yearsOfExperience}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w400,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ],
+                ),
               ),
-          ],
+              if (onDelete != null)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.delete_outline,
+                      color: Colors.red[600],
+                      size: 24,
+                    ),
+                    onPressed: onDelete,
+                    tooltip: 'Delete Student',
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:reorderables/reorderables.dart';
 import '../widgets/app_bottom_navigation.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../screens/time_table_screen.dart';
 import '../screens/teacher_qr_scan_screen.dart'; // Import smart QR scanner
 import '../screens/attendance_history_screen.dart'; // Import attendance history
 import '../screens/schedule_data_manager_screen.dart'; // Import schedule manager
+import '../screens/admin_attendance_overview_screen.dart'; // Import admin attendance overview
 
 class ModernDashboard extends StatefulWidget {
   final String title;
@@ -23,6 +25,7 @@ class ModernDashboard extends StatefulWidget {
   final VoidCallback? onStudentAttendanceTap;
   final VoidCallback? onTimetableTap;
   final String? userRole; // Add userRole parameter
+  final String? logoUrl; // Add logoUrl parameter
   const ModernDashboard({
     super.key,
     required this.title,
@@ -40,6 +43,7 @@ class ModernDashboard extends StatefulWidget {
     this.onStudentAttendanceTap,
     this.onTimetableTap,
     this.userRole, // Add userRole to constructor
+    this.logoUrl, // Add logoUrl to constructor
   });
 
   @override
@@ -100,18 +104,36 @@ class _ModernDashboardState extends State<ModernDashboard> {
         'description': 'For Students',
         'onTap': widget.onStudentAttendanceTap ?? () {},
       },
-      {
-        'icon': Icons.history,
-        'title': 'Scan History',
-        'description': 'Attendance Records',
-        'onTap': () {
-          Navigator.of(context, rootNavigator: true).push(
-            MaterialPageRoute(
-              builder: (_) => const AttendanceHistoryScreen(),
-            ),
-          );
+      // Teacher-only: Individual Scan History
+      if (widget.userRole?.toLowerCase() != 'admin' &&
+          widget.userRole?.toLowerCase() != 'owner')
+        {
+          'icon': Icons.history,
+          'title': 'Scan History',
+          'description': 'Attendance Records',
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const AttendanceHistoryScreen(),
+              ),
+            );
+          },
         },
-      },
+      // Admin-only: All Teachers QR Attendance Overview
+      if (widget.userRole?.toLowerCase() == 'admin' ||
+          widget.userRole?.toLowerCase() == 'owner')
+        {
+          'icon': Icons.admin_panel_settings,
+          'title': 'Scan Record',
+          'description': 'Staff Attendance',
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const AdminAttendanceOverviewScreen(),
+              ),
+            );
+          },
+        },
       // Only show Schedule card if user is not a teacher
       if (widget.userRole?.toLowerCase() != 'teacher')
         {
@@ -168,6 +190,110 @@ class _ModernDashboardState extends State<ModernDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Update school data cards with localized strings
+    _schoolDataCards = [
+      {
+        'icon': Icons.class_,
+        'title': l10n.classCard,
+        'description': l10n.viewAllClasses,
+        'onTap': widget.onClassTap ?? () {},
+      },
+      {
+        'icon': Icons.school,
+        'title': l10n.student,
+        'description': l10n.viewAllStudents,
+        'onTap': widget.onStudentTap ?? () {},
+      },
+      {
+        'icon': Icons.assignment,
+        'title': l10n.examResult,
+        'description': l10n.viewExamResults,
+        'onTap': widget.onExamResultTap ?? () {},
+      },
+      {
+        'icon': Icons.qr_code_scanner,
+        'title': l10n.qrScan,
+        'description': l10n.smartAttendance,
+        'onTap': () {
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              builder: (_) => const TeacherQRScanScreen(),
+            ),
+          );
+        },
+      },
+      {
+        'icon': Icons.check_circle,
+        'title': l10n.attendance,
+        'description': l10n.forStudents,
+        'onTap': widget.onStudentAttendanceTap ?? () {},
+      },
+      // Teacher-only: Individual Scan History
+      if (widget.userRole?.toLowerCase() != 'admin' &&
+          widget.userRole?.toLowerCase() != 'owner')
+        {
+          'icon': Icons.history,
+          'title': l10n.scanHistory,
+          'description': l10n.attendanceRecords,
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const AttendanceHistoryScreen(),
+              ),
+            );
+          },
+        },
+      // Admin-only: All Teachers QR Attendance Overview
+      if (widget.userRole?.toLowerCase() == 'admin' ||
+          widget.userRole?.toLowerCase() == 'owner')
+        {
+          'icon': Icons.admin_panel_settings,
+          'title': l10n.scanRecord,
+          'description': l10n.staffAttendance,
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const AdminAttendanceOverviewScreen(),
+              ),
+            );
+          },
+        },
+      // Only show Schedule card if user is not a teacher
+      if (widget.userRole?.toLowerCase() != 'teacher')
+        {
+          'icon': Icons.data_usage,
+          'title': l10n.schedule,
+          'description': l10n.checkManage,
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => const ScheduleDataManagerScreen(),
+              ),
+            );
+          },
+        },
+      // Only show Timetable card if user is not a teacher
+      if (widget.userRole?.toLowerCase() != 'teacher')
+        {
+          'icon': Icons.schedule,
+          'title': l10n.timetable,
+          'description': l10n.schedule,
+          'onTap': () {
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => TimeTableScreen(
+                  userRole: widget.userRole ?? 'admin',
+                  // teacherId will be automatically found by the TimeTableScreen
+                  // for teacher users in the _findTeacherId method
+                ),
+              ),
+            );
+          },
+        },
+    ];
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -175,9 +301,15 @@ class _ModernDashboardState extends State<ModernDashboard> {
         automaticallyImplyLeading: false, // Remove back button
         title: Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               backgroundColor: Colors.blue,
-              child: Icon(Icons.school, color: Colors.white),
+              backgroundImage:
+                  widget.logoUrl != null && widget.logoUrl!.isNotEmpty
+                      ? NetworkImage(widget.logoUrl!)
+                      : null,
+              child: widget.logoUrl == null || widget.logoUrl!.isEmpty
+                  ? const Icon(Icons.school, color: Colors.white)
+                  : null,
             ),
             const SizedBox(width: 12),
             Text(widget.title, style: const TextStyle(color: Colors.black)),

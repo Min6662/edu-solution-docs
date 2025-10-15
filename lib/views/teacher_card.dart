@@ -5,10 +5,7 @@ class TeacherCard extends StatelessWidget {
   final String name;
   final String? photoUrl;
   final int yearsOfExperience;
-  final double rating;
-  final int ratingCount;
   final double hourlyRate;
-  final VoidCallback? onAdd;
   final VoidCallback? onTap;
   final Uint8List? imageBytes;
 
@@ -17,10 +14,7 @@ class TeacherCard extends StatelessWidget {
     required this.name,
     this.photoUrl,
     required this.yearsOfExperience,
-    required this.rating,
-    required this.ratingCount,
     required this.hourlyRate,
-    this.onAdd,
     this.onTap,
     this.imageBytes,
   }) : super(key: key);
@@ -73,42 +67,19 @@ class TeacherCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('$yearsOfExperience years experience',
                         style: const TextStyle(fontSize: 14)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 18),
-                        const SizedBox(width: 4),
-                        Text(rating.toStringAsFixed(1),
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
-                        Text(' ($ratingCount)',
-                            style: const TextStyle(color: Colors.grey)),
-                      ],
-                    ),
                   ],
                 ),
               ),
-              Column(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('\$${hourlyRate.toStringAsFixed(2)}/hr',
-                        style: const TextStyle(
-                            color: Colors.blue, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 12),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle,
-                        color: Colors.blue, size: 32),
-                    onPressed: onAdd,
-                    tooltip: 'Add Teacher Info',
-                  ),
-                ],
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text('\$${hourlyRate.toStringAsFixed(2)}/hr',
+                    style: const TextStyle(
+                        color: Colors.blue, fontWeight: FontWeight.bold)),
               ),
             ],
           ),

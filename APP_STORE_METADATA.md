@@ -2,10 +2,13 @@
 
 ## App Information
 - **App Name**: Edu Solution
-- **Bundle ID**: com.school.management
-- **Version**: 1.0.2
+- **Bundle ID**: com.edusolution.app
+- **Version**: 1.0.5
+- **Build Number**: 5
 - **Category**: Education
 - **Secondary Category**: Productivity
+- **Content Rating**: 4+ (Educational)
+- **Pricing**: Free
 
 ## App Store Description
 
@@ -73,13 +76,34 @@ Revolutionize your school with Edu Solution! Easy attendance tracking, student m
 - **Primary**: Education
 - **Secondary**: Productivity
 
-## What's New in This Version
-Initial release of Edu Solution featuring:
-- Complete school management system
-- QR code attendance tracking
-- Multi-role user support
-- Secure data management
-- Intuitive dashboard interface
+## What's New in This Version (1.0.5)
+✨ **Enhanced User Experience:**
+- Complete UI redesign with modern, beautiful interface
+- Improved login screen without custom logo dependency
+- Enhanced visual design with gradient effects and animations
+
+🚀 **Performance Improvements:**
+- Advanced caching system with Hive for faster loading
+- Offline data access for improved reliability
+- Smart background refresh for real-time updates
+
+🎨 **Design Enhancements:**
+- Material Design 3 components
+- Beautiful color-themed input fields
+- Smooth animations and transitions
+- Professional typography improvements
+
+🔧 **Technical Updates:**
+- App Store optimization and compliance
+- Privacy manifest integration
+- Improved error handling
+- Enhanced multi-language support (English/Khmer)
+
+📱 **User Interface:**
+- Redesigned dashboard with better navigation
+- Enhanced teacher and student management screens
+- Improved QR code scanning interface
+- Better data visualization
 
 ## App Store Screenshots Required
 1. **iPhone 6.7" (Required)**

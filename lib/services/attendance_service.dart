@@ -83,14 +83,63 @@ class AttendanceService {
   static Future<ScheduleEntry?> validateAttendanceEligibility(
       String teacherId, String classCode) async {
     try {
-      final schedule = await getTeacherSchedule(teacherId);
+      print('=== ATTENDANCE VALIDATION DEBUG ===');
+      print('Original Teacher ID: $teacherId');
+      print('Original Class Code: $classCode');
+
+      // Map duplicate teacher IDs - temporary fix for duplicate records
+      String mappedTeacherId = teacherId;
+      if (teacherId == 'MpKBC2x5z6') {
+        mappedTeacherId = '0VigufBHQT';
+        print('MAPPED Teacher ID: $teacherId -> $mappedTeacherId');
+      }
+
+      // Map class codes if needed
+      String mappedClassCode = classCode;
+      if (classCode == 'wgSrRhbfud') {
+        mappedClassCode = '1A';
+        print('MAPPED Class Code: $classCode -> $mappedClassCode');
+      }
+
+      final schedule = await getTeacherSchedule(mappedTeacherId);
       final now = DateTime.now();
+
+      print(
+          'Current Time: ${now.hour}:${now.minute.toString().padLeft(2, '0')}');
+      print('Current Day: ${_getDayName(now.weekday)}');
+      print('Total Schedule Entries: ${schedule.length}');
 
       // Filter schedule for today and the scanned class
       final todaySchedule = schedule.where((entry) {
-        return entry.isValidToday() &&
-            entry.classCode.toLowerCase() == classCode.toLowerCase();
+        final isToday = entry.isValidToday();
+        final classMatches = entry.classCode.isEmpty ||
+            entry.classCode.toLowerCase() == mappedClassCode.toLowerCase();
+
+        print(
+            'Entry check - Day: ${entry.dayOfWeek}, Class: "${entry.classCode}", IsToday: $isToday, ClassMatches: $classMatches');
+
+        return isToday && classMatches;
       }).toList();
+
+      print(
+          'Today\'s Schedule for Class $mappedClassCode: ${todaySchedule.length} entries');
+
+      // Debug: Show all schedule entries for this teacher
+      print('=== ALL SCHEDULE ENTRIES FOR TEACHER $mappedTeacherId ===');
+      for (var entry in schedule) {
+        print(
+            'Day: ${entry.dayOfWeek}, Time: ${entry.startTime}-${entry.endTime}, Class: ${entry.classCode}, Subject: ${entry.subjectName}');
+      }
+
+      // Debug: Show entries for today specifically
+      final allTodayEntries =
+          schedule.where((entry) => entry.isValidToday()).toList();
+      print(
+          '=== ALL ENTRIES FOR ${_getDayName(now.weekday).toUpperCase()} ===');
+      for (var entry in allTodayEntries) {
+        print(
+            'Time: ${entry.startTime}-${entry.endTime}, Class: ${entry.classCode}, Subject: ${entry.subjectName}');
+      }
 
       // Find current or recent class (within valid timeframe)
       for (final entry in todaySchedule) {
@@ -119,9 +168,17 @@ class AttendanceService {
     required ScheduleEntry scheduleEntry,
   }) async {
     try {
+      // Map duplicate teacher IDs - use same mapping as validation
+      String mappedTeacherId = teacherId;
+      if (teacherId == 'MpKBC2x5z6') {
+        mappedTeacherId = '0VigufBHQT';
+        print(
+            'MAPPED Teacher ID for attendance: $teacherId -> $mappedTeacherId');
+      }
+
       // Check for duplicate attendance first
       final alreadyScanned = await hasAlreadyScannedToday(
-        teacherId: teacherId,
+        teacherId: mappedTeacherId, // Use mapped ID for checking duplicates
         classCode: classCode,
         subjectId: scheduleEntry.subjectId,
         period: scheduleEntry.period,
@@ -148,10 +205,14 @@ class AttendanceService {
       // Create attendance record
       final attendanceRecord = AttendanceRecord(
         objectId: '',
-        teacherId: teacherId,
+        teacherId: mappedTeacherId, // Use mapped teacher ID
         classCode: classCode,
-        subjectId: scheduleEntry.subjectId,
-        subjectName: scheduleEntry.subjectName,
+        subjectId: scheduleEntry.subjectId.isEmpty
+            ? 'unknown'
+            : scheduleEntry.subjectId,
+        subjectName: scheduleEntry.subjectName.isEmpty
+            ? 'General Class'
+            : scheduleEntry.subjectName,
         scannedTime: now,
         status: status,
         classStartTime: startTime,
@@ -161,16 +222,57 @@ class AttendanceService {
       );
 
       // Save to Parse Server
+      print('=== SAVING ATTENDANCE RECORD ===');
+      print('Teacher ID: $teacherId (original)');
+      print('Mapped Teacher ID: $mappedTeacherId (for save)');
+      print('Class Code: $classCode');
+      print('Subject ID: ${scheduleEntry.subjectId}');
+      print('Subject ID: ${scheduleEntry.subjectId}');
+      print('Subject Name: ${scheduleEntry.subjectName}');
+      print('Status: $status');
+      print('Start Time (local): $startTime');
+      print('Scanned Time (local): $now');
+
       final parseObject = ParseObject('TeacherAttendance');
       final data = attendanceRecord.toParseObject();
+
+      print('Attendance data to save: $data');
+
       data.forEach((key, value) {
         parseObject.set(key, value);
       });
 
-      // Add teacher pointer
-      parseObject.set('teacher', ParseObject('Teacher')..objectId = teacherId);
+      // Add teacher pointer - use mapped teacher ID
+      parseObject.set(
+          'teacher', ParseObject('Teacher')..objectId = mappedTeacherId);
 
+      print('About to save to Parse...');
+
+      // First, let's try to create a simple test object to check permissions
+      print('Testing Parse permissions with simple object...');
+      final testObject = ParseObject('TeacherAttendance');
+      testObject.set('test', 'test-value');
+      final testResponse = await testObject.save();
+      print('Test save - Success: ${testResponse.success}');
+      if (testResponse.error != null) {
+        print('Test save error: ${testResponse.error!.message}');
+      }
+
+      // Now try the actual save
       final response = await parseObject.save();
+      print('Parse response - Success: ${response.success}');
+      print('Parse response object: ${response.result}');
+      print('Parse response results: ${response.results}');
+
+      if (response.error != null) {
+        print('Parse error: ${response.error!.message}');
+        print('Parse error code: ${response.error!.code}');
+        print('Parse error type: ${response.error!.type}');
+      } else if (!response.success) {
+        print('Parse failed but no error object - checking statusCode');
+        print('Response count: ${response.count}');
+        print('Response toString: ${response.toString()}');
+      }
 
       if (response.success) {
         return {
@@ -257,6 +359,28 @@ class AttendanceService {
     } catch (e) {
       print('Error checking duplicate attendance: $e');
       return false;
+    }
+  }
+
+  // Helper method to get day name from weekday number
+  static String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1:
+        return 'Monday';
+      case 2:
+        return 'Tuesday';
+      case 3:
+        return 'Wednesday';
+      case 4:
+        return 'Thursday';
+      case 5:
+        return 'Friday';
+      case 6:
+        return 'Saturday';
+      case 7:
+        return 'Sunday';
+      default:
+        return 'Unknown';
     }
   }
 }

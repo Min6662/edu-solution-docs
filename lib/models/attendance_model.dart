@@ -62,10 +62,10 @@ class AttendanceRecord {
       'classCode': classCode,
       'subjectId': subjectId,
       'subjectName': subjectName,
-      'scannedTime': scannedTime.toUtc(),
+      'scannedTime': scannedTime, // Keep local time
       'status': status,
-      'classStartTime': classStartTime.toUtc(),
-      'classEndTime': classEndTime.toUtc(),
+      'classStartTime': classStartTime, // Keep local time
+      'classEndTime': classEndTime, // Keep local time
       'period': period,
       'dayOfWeek': dayOfWeek,
     };
@@ -150,8 +150,12 @@ class ScheduleEntry {
       'Saturday',
       'Sunday'
     ];
+    final shortWeekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final todayName = weekdays[today.weekday - 1];
+    final todayShort = shortWeekdays[today.weekday - 1];
 
-    return dayOfWeek.toLowerCase() == todayName.toLowerCase();
+    // Match both full and abbreviated day names
+    return dayOfWeek.toLowerCase() == todayName.toLowerCase() ||
+        dayOfWeek.toLowerCase() == todayShort.toLowerCase();
   }
 }

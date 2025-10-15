@@ -51,5 +51,9 @@
 	<string>This app needs access to your photo library to select profile pictures for students and teachers</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Allow access to scan classroom QR codes</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>NotoSansKhmer-Regular.ttf</string>
+	</array>
 </dict>
 </plist>

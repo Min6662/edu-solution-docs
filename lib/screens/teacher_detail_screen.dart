@@ -5,7 +5,13 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:provider/provider.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:hive/hive.dart';
 import '../models/teacher.dart';
+import '../services/language_service.dart';
+import '../services/cache_service.dart';
 
 class TeacherDetailScreen extends StatefulWidget {
   final Teacher teacher;
@@ -21,6 +27,9 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
   String? _teacherUsername;
   String? _teacherPassword;
   bool _hasUserAccount = false;
+  String? _currentUserRole; // Add current user role tracking
+  bool? _isViewingOwnProfile; // Cache the profile check result
+  Uint8List? _cachedImageBytes; // Add cached image bytes
 
   // Editable fields
   bool _isEditingBasicInfo = false;
@@ -48,6 +57,9 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
   void initState() {
     super.initState();
     _loadTeacherCredentials();
+    _loadCurrentUserRole(); // Add this line
+    _loadOwnProfileCheck(); // Add this line
+    _loadTeacherImage(); // Add this line
 
     print('DEBUG: initState called with address: "${widget.teacher.address}"');
 
@@ -128,6 +140,32 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
   }
 
   Future<void> _loadTeacherCredentials() async {
+    final teacherId = widget.teacher.objectId;
+
+    // Try to load from cache first
+    final cachedCredentials =
+        CacheService.getTeacherCredentials(teacherId: teacherId);
+    if (cachedCredentials != null &&
+        CacheService.isCacheFresh(cachedCredentials['lastUpdated'],
+            maxAgeMinutes: 10)) {
+      setState(() {
+        _teacherUsername = cachedCredentials['username'];
+        _teacherPassword = cachedCredentials['password'];
+        _hasUserAccount = cachedCredentials['hasUserAccount'] ?? false;
+        _isLoading = false;
+      });
+      print('DEBUG: Loaded teacher credentials from cache');
+
+      // Still fetch fresh data in background
+      _loadFreshCredentials();
+      return;
+    }
+
+    // Load fresh data if no cache or cache is stale
+    await _loadFreshCredentials();
+  }
+
+  Future<void> _loadFreshCredentials() async {
     try {
       final query = QueryBuilder<ParseObject>(ParseObject('Teacher'))
         ..whereEqualTo('objectId', widget.teacher.objectId);
@@ -139,12 +177,27 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
           response.results!.isNotEmpty) {
         final teacherRecord = response.results!.first as ParseObject;
 
+        final username = teacherRecord.get<String>('username');
+        final password = teacherRecord.get<String>('plainPassword');
+        final hasUserAccount =
+            teacherRecord.get<bool>('hasUserAccount') ?? false;
+
+        // Cache the credentials
+        await CacheService.saveTeacherCredentials(
+          teacherId: widget.teacher.objectId,
+          username: username,
+          password: password,
+          hasUserAccount: hasUserAccount,
+        );
+
         setState(() {
-          _teacherUsername = teacherRecord.get<String>('username');
-          _teacherPassword = teacherRecord.get<String>('plainPassword');
-          _hasUserAccount = teacherRecord.get<bool>('hasUserAccount') ?? false;
+          _teacherUsername = username;
+          _teacherPassword = password;
+          _hasUserAccount = hasUserAccount;
           _isLoading = false;
         });
+
+        print('DEBUG: Loaded and cached fresh teacher credentials');
       } else {
         setState(() {
           _isLoading = false;
@@ -158,449 +211,625 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
     }
   }
 
+  Future<void> _loadCurrentUserRole() async {
+    try {
+      final user = await ParseUser.currentUser();
+      final role = user?.get<String>('role');
+      if (mounted) {
+        setState(() {
+          _currentUserRole = role;
+        });
+      }
+    } catch (e) {
+      print('Error loading current user role: $e');
+    }
+  }
+
+  // Load and cache the profile check result
+  Future<void> _loadOwnProfileCheck() async {
+    try {
+      final user = await ParseUser.currentUser();
+      if (user == null) {
+        _isViewingOwnProfile = false;
+        return;
+      }
+
+      // Check if current user's username matches the teacher's username
+      final currentUsername = user.username;
+      final teacherUsername = widget.teacher.username ?? _teacherUsername;
+
+      if (mounted) {
+        setState(() {
+          _isViewingOwnProfile = (currentUsername == teacherUsername);
+        });
+      }
+    } catch (e) {
+      print('Error checking if viewing own profile: $e');
+      if (mounted) {
+        setState(() {
+          _isViewingOwnProfile = false;
+        });
+      }
+    }
+  }
+
+  // Add method to load cached teacher image
+  Future<void> _loadTeacherImage() async {
+    try {
+      final box = await Hive.openBox('teacherImages');
+      final cached = box.get(widget.teacher.objectId);
+      if (cached != null) {
+        print('🖼️ Using cached image for teacher: ${widget.teacher.objectId}');
+        if (mounted) {
+          setState(() {
+            _cachedImageBytes = Uint8List.fromList(List<int>.from(cached));
+          });
+        }
+        return;
+      }
+
+      // If no cached image and photoUrl exists, try to load and cache it
+      final photoUrl = widget.teacher.photoUrl;
+      if (photoUrl != null &&
+          photoUrl.isNotEmpty &&
+          photoUrl.startsWith('http')) {
+        try {
+          print(
+              '🌐 Loading fresh image for teacher: ${widget.teacher.objectId} from: ${photoUrl.substring(0, 50)}...');
+          final response = await http.get(Uri.parse(photoUrl));
+          if (response.statusCode == 200) {
+            await box.put(widget.teacher.objectId, response.bodyBytes);
+            print('✅ Cached new image for teacher: ${widget.teacher.objectId}');
+            if (mounted) {
+              setState(() {
+                _cachedImageBytes = response.bodyBytes;
+              });
+            }
+          } else {
+            print('❌ Failed to load image: HTTP ${response.statusCode}');
+          }
+        } catch (e) {
+          print(
+              '❌ Error loading image for teacher ${widget.teacher.objectId}: $e');
+        }
+      } else {
+        print(
+            '❌ Invalid image URL for teacher ${widget.teacher.objectId}: $photoUrl');
+      }
+    } catch (e) {
+      print('❌ Error loading teacher image: $e');
+    }
+  }
+
+  // Getter for checking if user can edit credentials
+  bool get _canEditCredentials {
+    if (_currentUserRole != 'teacher') return true; // Admins can always edit
+    return _isViewingOwnProfile ??
+        false; // Teachers can edit only their own profile
+  }
+
+  Future<void> _refreshTeacherData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    // Clear cache for this teacher
+    await CacheService.clearTeacherDetail(teacherId: widget.teacher.objectId);
+
+    // Clear static cache as well
+    _teacherDataCache.remove(widget.teacher.objectId);
+
+    // Clear the image cache for this teacher
+    try {
+      final box = await Hive.openBox('teacherImages');
+      await box.delete(widget.teacher.objectId);
+      print('🗑️ Cleared image cache for teacher: ${widget.teacher.objectId}');
+
+      // Reset cached image bytes
+      setState(() {
+        _cachedImageBytes = null;
+      });
+    } catch (e) {
+      print('❌ Error clearing image cache: $e');
+    }
+
+    // Reload data
+    await Future.wait([
+      _loadTeacherCredentials(),
+      _loadCurrentUserRole(),
+      _loadOwnProfileCheck(),
+      _loadTeacherImage(),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.teacher.fullName} Details'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: () => _showDeleteConfirmationDialog(),
-            tooltip: 'Delete Teacher',
+    final l10n = AppLocalizations.of(context)!;
+
+    return Consumer<LanguageService>(
+      builder: (context, languageService, child) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('${widget.teacher.fullName} ${l10n.teacherDetails}'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.blue),
+                onPressed: _refreshTeacherData,
+                tooltip: 'Refresh Data',
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _showDeleteConfirmationDialog(),
+                tooltip: l10n.deleteTeacher,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Teacher Photo Section
-                  Center(
-                    child: Column(
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            _showPhotoPickerDialog();
-                          },
-                          child: Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.blue[300]!,
-                                width: 3,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Teacher Photo Section
+                      Center(
+                        child: Column(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                _showPhotoPickerDialog();
+                              },
+                              child: Container(
+                                width: 120,
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.blue[300]!,
+                                    width: 3,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: (widget.teacher.photoUrl != null &&
-                                      widget.teacher.photoUrl!.isNotEmpty)
-                                  ? Image.network(
-                                      widget.teacher.photoUrl!,
-                                      width: 120,
-                                      height: 120,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder:
-                                          (context, child, loadingProgress) {
-                                        if (loadingProgress == null) {
-                                          return child;
-                                        }
-                                        return Container(
+                                child: ClipOval(
+                                  child: _cachedImageBytes != null
+                                      ? Image.memory(
+                                          _cachedImageBytes!,
                                           width: 120,
                                           height: 120,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.grey,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Center(
-                                            child: CircularProgressIndicator(),
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder:
-                                          (context, error, stackTrace) {
-                                        print('Error loading image: $error');
-                                        return _buildPhotoPlaceholder();
-                                      },
-                                    )
-                                  : _buildPhotoPlaceholder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _currentName,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue[700],
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.blue[200]!),
-                          ),
-                          child: Text(
-                            _currentSubject.isEmpty
-                                ? 'Teacher'
-                                : '$_currentSubject Teacher',
-                            style: TextStyle(
-                              color: Colors.blue[700],
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        // Update Photo Button
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            _showUpdatePhotoDialog();
-                          },
-                          icon: const Icon(Icons.camera_alt, size: 18),
-                          label: const Text('Update Photo'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[600],
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            textStyle: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Basic Information Card
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Basic Information',
-                                style:
-                                    Theme.of(context).textTheme.headlineSmall,
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  _isEditingBasicInfo
-                                      ? Icons.close
-                                      : Icons.edit,
-                                  color: _isEditingBasicInfo
-                                      ? Colors.red
-                                      : Colors.blue,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    if (_isEditingBasicInfo) {
-                                      // Cancel editing - reset values
-                                      _nameController.text = _currentName;
-                                      _subjectController.text = _currentSubject;
-                                      _addressController.text = _currentAddress;
-                                      _experienceController.text =
-                                          _currentExperience;
-                                      _hourlyPayController.text =
-                                          _currentHourlyPay;
-                                      _selectedGender = _currentGender;
-                                    }
-                                    _isEditingBasicInfo = !_isEditingBasicInfo;
-                                  });
-                                },
-                                tooltip:
-                                    _isEditingBasicInfo ? 'Cancel' : 'Edit',
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          if (_isEditingBasicInfo) ...[
-                            // Editable mode
-                            _buildEditableField(
-                                'Full Name', _nameController, Icons.person),
-                            const SizedBox(height: 16),
-                            _buildGenderDropdown(),
-                            const SizedBox(height: 16),
-                            _buildEditableField(
-                                'Subject', _subjectController, Icons.book),
-                            const SizedBox(height: 16),
-                            _buildEditableField('Address', _addressController,
-                                Icons.location_on),
-                            const SizedBox(height: 16),
-                            _buildEditableField('Years of Experience',
-                                _experienceController, Icons.work),
-                            const SizedBox(height: 16),
-                            _buildEditableField('Hourly Pay (\$)',
-                                _hourlyPayController, Icons.attach_money),
-                            const SizedBox(height: 20),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: _saveBasicInformation,
-                                    icon: const Icon(Icons.save),
-                                    label: const Text('Save Changes'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ] else ...[
-                            // Read-only mode
-                            Builder(
-                              builder: (context) {
-                                print('DEBUG: Building read-only view with:');
-                                print('DEBUG: _currentName: $_currentName');
-                                print('DEBUG: _currentGender: $_currentGender');
-                                print(
-                                    'DEBUG: _currentSubject: $_currentSubject');
-                                print(
-                                    'DEBUG: _currentAddress: "$_currentAddress"');
-                                print(
-                                    'DEBUG: _currentAddress.isEmpty: ${_currentAddress.isEmpty}');
-                                return Column(
-                                  children: [
-                                    _buildDetailRow('Full Name', _currentName),
-                                    _buildDetailRow('Gender', _currentGender),
-                                    _buildDetailRow(
-                                        'Subject',
-                                        _currentSubject.isEmpty
-                                            ? 'Not specified'
-                                            : _currentSubject),
-                                    _buildDetailRow(
-                                        'Address',
-                                        _currentAddress.isEmpty
-                                            ? 'Not specified'
-                                            : _currentAddress),
-                                    _buildDetailRow(
-                                        'Years of Experience',
-                                        _currentExperience.isEmpty
-                                            ? '0'
-                                            : '$_currentExperience years'),
-                                    _buildDetailRow(
-                                        'Hourly Pay',
-                                        _currentHourlyPay.isEmpty
-                                            ? 'Not specified'
-                                            : '\$${_currentHourlyPay}/hr'),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Login Credentials Card
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Login Credentials',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          const SizedBox(height: 16),
-                          if (_hasUserAccount) ...[
-                            _buildDetailRow('Username',
-                                _teacherUsername ?? 'Not available'),
-                            _buildDetailRow('Password',
-                                _teacherPassword ?? 'Not available'),
-                            _buildDetailRow('Account Status', 'Active'),
-                            const SizedBox(height: 16),
-                            // Credential Management Buttons for Existing Accounts
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      _showChangePasswordDialog();
-                                    },
-                                    icon: const Icon(Icons.lock_reset),
-                                    label: const Text('Change Password'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.orange,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      _showChangeUsernameDialog();
-                                    },
-                                    icon: const Icon(Icons.person_outline),
-                                    label: const Text('Change Username'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.blue,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  _showCopyCredentialsDialog();
-                                },
-                                icon: const Icon(Icons.copy),
-                                label: const Text('Copy Credentials'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : (widget.teacher.photoUrl != null &&
+                                              widget
+                                                  .teacher.photoUrl!.isNotEmpty)
+                                          ? Image.network(
+                                              widget.teacher.photoUrl!,
+                                              width: 120,
+                                              height: 120,
+                                              fit: BoxFit.cover,
+                                              loadingBuilder: (context, child,
+                                                  loadingProgress) {
+                                                if (loadingProgress == null) {
+                                                  return child;
+                                                }
+                                                return Container(
+                                                  width: 120,
+                                                  height: 120,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                    color: Colors.grey,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  child: const Center(
+                                                    child:
+                                                        CircularProgressIndicator(),
+                                                  ),
+                                                );
+                                              },
+                                              errorBuilder:
+                                                  (context, error, stackTrace) {
+                                                print(
+                                                    'Error loading image: $error');
+                                                return _buildPhotoPlaceholder();
+                                              },
+                                            )
+                                          : _buildPhotoPlaceholder(),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 12),
-                            // Add warning and recreate account option
+                            Text(
+                              _currentName,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[700],
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.orange[50],
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.orange[200]!),
+                                color: Colors.blue[50],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.blue[200]!),
                               ),
-                              child: Column(
+                              child: Text(
+                                _currentSubject.isEmpty
+                                    ? 'Teacher'
+                                    : '$_currentSubject Teacher',
+                                style: TextStyle(
+                                  color: Colors.blue[700],
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Update Photo Button
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                _showUpdatePhotoDialog();
+                              },
+                              icon: const Icon(Icons.camera_alt, size: 18),
+                              label: Text(l10n.updatePhoto),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.grey[600],
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8),
+                                textStyle: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Basic Information Card
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
+                                  Text(
+                                    l10n.basicInformation,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall,
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                      _isEditingBasicInfo
+                                          ? Icons.close
+                                          : Icons.edit,
+                                      color: _isEditingBasicInfo
+                                          ? Colors.red
+                                          : Colors.blue,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        if (_isEditingBasicInfo) {
+                                          // Cancel editing - reset values
+                                          _nameController.text = _currentName;
+                                          _subjectController.text =
+                                              _currentSubject;
+                                          _addressController.text =
+                                              _currentAddress;
+                                          _experienceController.text =
+                                              _currentExperience;
+                                          _hourlyPayController.text =
+                                              _currentHourlyPay;
+                                          _selectedGender = _currentGender;
+                                        }
+                                        _isEditingBasicInfo =
+                                            !_isEditingBasicInfo;
+                                      });
+                                    },
+                                    tooltip: _isEditingBasicInfo
+                                        ? l10n.cancel
+                                        : l10n.edit,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              if (_isEditingBasicInfo) ...[
+                                // Editable mode
+                                _buildEditableField(l10n.fullName,
+                                    _nameController, Icons.person),
+                                const SizedBox(height: 16),
+                                _buildGenderDropdown(),
+                                const SizedBox(height: 16),
+                                _buildEditableField(l10n.subject,
+                                    _subjectController, Icons.book),
+                                const SizedBox(height: 16),
+                                _buildEditableField(l10n.address,
+                                    _addressController, Icons.location_on),
+                                const SizedBox(height: 16),
+                                _buildEditableField(l10n.yearsOfExperience,
+                                    _experienceController, Icons.work),
+                                const SizedBox(height: 16),
+                                _buildEditableField(l10n.hourlyPay,
+                                    _hourlyPayController, Icons.attach_money),
+                                const SizedBox(height: 20),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: ElevatedButton.icon(
+                                        onPressed: _saveBasicInformation,
+                                        icon: const Icon(Icons.save),
+                                        label: Text(l10n.saveChanges),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.green,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else ...[
+                                // Read-only mode
+                                Builder(
+                                  builder: (context) {
+                                    print(
+                                        'DEBUG: Building read-only view with:');
+                                    print('DEBUG: _currentName: $_currentName');
+                                    print(
+                                        'DEBUG: _currentGender: $_currentGender');
+                                    print(
+                                        'DEBUG: _currentSubject: $_currentSubject');
+                                    print(
+                                        'DEBUG: _currentAddress: "$_currentAddress"');
+                                    print(
+                                        'DEBUG: _currentAddress.isEmpty: ${_currentAddress.isEmpty}');
+                                    return Column(
+                                      children: [
+                                        _buildDetailRow(
+                                            l10n.fullName, _currentName),
+                                        _buildDetailRow(
+                                            l10n.gender, _currentGender),
+                                        _buildDetailRow(
+                                            l10n.subject,
+                                            _currentSubject.isEmpty
+                                                ? l10n.notSpecified
+                                                : _currentSubject),
+                                        _buildDetailRow(
+                                            l10n.address,
+                                            _currentAddress.isEmpty
+                                                ? l10n.notSpecified
+                                                : _currentAddress),
+                                        _buildDetailRow(
+                                            l10n.yearsOfExperience,
+                                            _currentExperience.isEmpty
+                                                ? '0'
+                                                : '$_currentExperience ${l10n.years}'),
+                                        _buildDetailRow(
+                                            l10n.hourlyPay,
+                                            _currentHourlyPay.isEmpty
+                                                ? l10n.notSpecified
+                                                : '\$${_currentHourlyPay}/${l10n.hr}'),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Login Credentials Card
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.loginCredentials,
+                                style:
+                                    Theme.of(context).textTheme.headlineSmall,
+                              ),
+                              const SizedBox(height: 16),
+                              if (_hasUserAccount) ...[
+                                _buildDetailRow(l10n.username,
+                                    _teacherUsername ?? l10n.notAvailable),
+                                _buildDetailRow(l10n.password,
+                                    _teacherPassword ?? l10n.notAvailable),
+                                _buildDetailRow(
+                                    l10n.accountStatus, l10n.active),
+                                const SizedBox(height: 16),
+                                // Credential Management Buttons for Existing Accounts (Allow for admins or teachers viewing their own profile)
+                                if (_canEditCredentials) ...[
                                   Row(
                                     children: [
-                                      Icon(Icons.warning,
-                                          color: Colors.orange[600], size: 20),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () {
+                                            _showChangePasswordDialog();
+                                          },
+                                          icon: const Icon(Icons.lock_reset),
+                                          label: Text(l10n.changePassword),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.orange,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                        ),
+                                      ),
                                       const SizedBox(width: 8),
-                                      const Expanded(
-                                        child: Text(
-                                          'Due to Parse Server security, credential changes require account recreation.',
-                                          style: TextStyle(fontSize: 12),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () {
+                                            _showChangeUsernameDialog();
+                                          },
+                                          icon:
+                                              const Icon(Icons.person_outline),
+                                          label: Text(l10n.changeUsername),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.blue,
+                                            foregroundColor: Colors.white,
+                                          ),
                                         ),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  ElevatedButton(
-                                    onPressed: () {
-                                      _showRecreateAccountDialog();
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red[400],
-                                      foregroundColor: Colors.white,
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        _showCopyCredentialsDialog();
+                                      },
+                                      icon: const Icon(Icons.copy),
+                                      label: Text(l10n.copyCredentials),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green,
+                                        foregroundColor: Colors.white,
+                                      ),
                                     ),
-                                    child: const Text(
-                                        'Recreate Account with New Credentials'),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                                // Add warning and recreate account option (Allow for admins or teachers viewing their own profile)
+                                if (_canEditCredentials) ...[
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange[50],
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: Colors.orange[200]!),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(Icons.warning,
+                                                color: Colors.orange[600],
+                                                size: 20),
+                                            const SizedBox(width: 8),
+                                            const Expanded(
+                                              child: Text(
+                                                'Due to Parse Server security, credential changes require account recreation.',
+                                                style: TextStyle(fontSize: 12),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            _showRecreateAccountDialog();
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.red[400],
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          child: const Text(
+                                              'Recreate Account with New Credentials'),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
+                              ] else ...[
+                                _buildDetailRow(
+                                    l10n.username, l10n.noAccountCreated),
+                                _buildDetailRow(
+                                    l10n.password, l10n.noAccountCreated),
+                                _buildDetailRow(
+                                    l10n.accountStatus, l10n.inactive),
+                                const SizedBox(height: 16),
+                                // Set Credentials button (Allow for admins or teachers viewing their own profile)
+                                if (_canEditCredentials) ...[
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      _showSetCredentialsDialog();
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: Text(l10n.setCredentials),
+                                  ),
+                                ],
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Danger Zone Section
+                      const SizedBox(height: 32),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.red[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red[200]!),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.warning,
+                              color: Colors.red,
+                              size: 32,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.dangerZone,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red,
                               ),
                             ),
-                          ] else ...[
-                            _buildDetailRow(
-                                'Username', 'No account created yet'),
-                            _buildDetailRow(
-                                'Password', 'No account created yet'),
-                            _buildDetailRow('Account Status', 'Inactive'),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () {
-                                _showSetCredentialsDialog();
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.deleteTeacherWarning,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
                               ),
-                              child: const Text('Set Credentials'),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: () => _showDeleteConfirmationDialog(),
+                              icon: const Icon(Icons.delete),
+                              label: Text(l10n.deleteTeacher),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 12,
+                                ),
+                              ),
                             ),
                           ],
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-
-                  // Danger Zone Section
-                  const SizedBox(height: 32),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red[200]!),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.warning,
-                          color: Colors.red,
-                          size: 32,
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Danger Zone',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.red,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Deleting this teacher will permanently remove all their data, including login credentials and schedule assignments.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: () => _showDeleteConfirmationDialog(),
-                          icon: const Icon(Icons.delete),
-                          label: const Text('Delete Teacher'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                ),
+        );
+      },
     );
   }
 
@@ -733,17 +962,19 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
   }
 
   Future<void> _saveBasicInformation() async {
+    final l10n = AppLocalizations.of(context)!;
+
     // Show loading dialog
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const AlertDialog(
+        builder: (context) => AlertDialog(
           content: Row(
             children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Text('Saving changes...'),
+              const CircularProgressIndicator(),
+              const SizedBox(width: 16),
+              Text(l10n.savingChanges),
             ],
           ),
         ),
@@ -753,7 +984,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
     try {
       // Validate required fields
       if (_nameController.text.trim().isEmpty) {
-        throw Exception('Full name is required');
+        throw Exception(l10n.fullNameRequired);
       }
 
       print('DEBUG: Starting to save teacher information...');
@@ -830,6 +1061,24 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
           print('DEBUG: Cached address: "$_currentAddress"');
         });
 
+        // Also save to Hive cache
+        await CacheService.saveTeacherDetail(
+          teacherId: teacherId,
+          teacherData: {
+            'name': _currentName,
+            'gender': _currentGender,
+            'subject': _currentSubject,
+            'address': _currentAddress,
+            'experience': _currentExperience,
+            'hourlyPay': _currentHourlyPay,
+          },
+          credentialsData: {
+            'username': _teacherUsername,
+            'password': _teacherPassword,
+            'hasUserAccount': _hasUserAccount,
+          },
+        );
+
         print('DEBUG: Local state updated with new values');
         print('DEBUG: _currentName: $_currentName');
         print('DEBUG: _currentGender: $_currentGender');
@@ -839,10 +1088,10 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
         if (mounted) {
           Navigator.pop(context); // Close loading dialog
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Teacher information updated successfully!'),
+            SnackBar(
+              content: Text(l10n.teacherInfoUpdated),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -859,7 +1108,7 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
         Navigator.pop(context); // Close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save changes: $e'),
+            content: Text('${l10n.failedToSaveChanges}: $e'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
@@ -1637,54 +1886,122 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
           'Content-Type': 'application/json',
         };
 
-        // IMPORTANT: Parse Server ACL prevents direct user updates
-        // We'll update the Teacher table and inform about account recreation
+        print('DEBUG: 🔄 Updating both User and Teacher tables');
 
-        print(
-            'DEBUG: 🔄 Updating Teacher table only due to Parse ACL restrictions');
-
-        // Step 2: Update Teacher record with new password
-        final teacherResponse = await http.put(
-          Uri.parse(
-              'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+        // Step 1: Update User account password
+        final userResponse = await http.put(
+          Uri.parse('https://parseapi.back4app.com/users/$userId'),
           headers: headers,
           body: jsonEncode({
-            'plainPassword': newPassword,
-            'lastPasswordReset': {
-              '__type': 'Date',
-              'iso': DateTime.now().toIso8601String(),
-            },
-            'lastModified': {
-              '__type': 'Date',
-              'iso': DateTime.now().toIso8601String(),
-            },
+            'password': newPassword,
           }),
         );
 
-        if (teacherResponse.statusCode == 200) {
-          print('DEBUG: ✅ Teacher password updated successfully');
-          print(
-              'DEBUG: ⚠️  Note: User account password not updated due to Parse ACL restrictions');
+        if (userResponse.statusCode == 200) {
+          print('DEBUG: ✅ User password updated successfully');
 
-          // Update local state
-          setState(() {
-            _teacherPassword = newPassword;
-          });
+          // Step 2: Update Teacher record with new password
+          final teacherResponse = await http.put(
+            Uri.parse(
+                'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+            headers: headers,
+            body: jsonEncode({
+              'plainPassword': newPassword,
+              'lastPasswordReset': {
+                '__type': 'Date',
+                'iso': DateTime.now().toIso8601String(),
+              },
+              'lastModified': {
+                '__type': 'Date',
+                'iso': DateTime.now().toIso8601String(),
+              },
+            }),
+          );
 
-          if (mounted) {
-            Navigator.pop(context); // Close loading dialog
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                    'Password updated in Teacher record. Note: User account requires recreation for login.'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 6),
-              ),
+          if (teacherResponse.statusCode == 200) {
+            print('DEBUG: ✅ Teacher password updated successfully');
+            print('DEBUG: ✅ Both User and Teacher records updated');
+
+            // Update local state
+            setState(() {
+              _teacherPassword = newPassword;
+            });
+
+            // Update cache
+            await CacheService.saveTeacherCredentials(
+              teacherId: widget.teacher.objectId,
+              username: _teacherUsername,
+              password: newPassword,
+              hasUserAccount: _hasUserAccount,
             );
+
+            if (mounted) {
+              Navigator.pop(context); // Close loading dialog
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                      'Password updated successfully! Teacher can now login with new password.'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            }
+          } else {
+            throw Exception(
+                'Failed to update teacher record: ${teacherResponse.body}');
           }
         } else {
-          throw Exception(
-              'Failed to update teacher record: ${teacherResponse.body}');
+          // Handle ACL error gracefully
+          final errorData = jsonDecode(userResponse.body);
+          final errorMessage = errorData['error'] ?? userResponse.body;
+
+          print(
+              'DEBUG: ❌ User update failed due to ACL restrictions: $errorMessage');
+
+          // If it's an ACL/permission error, update only Teacher record and show info
+          if (errorMessage.toString().contains('Cannot modify user') ||
+              errorMessage.toString().contains('ACL') ||
+              userResponse.statusCode == 403) {
+            print(
+                'DEBUG: 🔄 ACL restriction detected, updating Teacher record only');
+
+            // Update Teacher record with new password
+            final teacherResponse = await http.put(
+              Uri.parse(
+                  'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+              headers: headers,
+              body: jsonEncode({
+                'plainPassword': newPassword,
+                'lastPasswordReset': {
+                  '__type': 'Date',
+                  'iso': DateTime.now().toIso8601String(),
+                },
+                'lastModified': {
+                  '__type': 'Date',
+                  'iso': DateTime.now().toIso8601String(),
+                },
+              }),
+            );
+
+            if (teacherResponse.statusCode == 200) {
+              print('DEBUG: ✅ Teacher password updated in Teacher record');
+
+              // Update local state
+              setState(() {
+                _teacherPassword = newPassword;
+              });
+
+              if (mounted) {
+                Navigator.pop(context); // Close loading dialog
+                _showACLRestrictionDialog('password', newPassword);
+              }
+            } else {
+              throw Exception(
+                  'Failed to update teacher record: ${teacherResponse.body}');
+            }
+          } else {
+            throw Exception('Failed to update user password: $errorMessage');
+          }
         }
       } else {
         throw Exception('Teacher not found');
@@ -1746,50 +2063,114 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
           'Content-Type': 'application/json',
         };
 
-        // IMPORTANT: Parse Server ACL prevents direct user updates
-        // We'll update the Teacher table and inform about account recreation
+        print('DEBUG: 🔄 Updating both User and Teacher tables');
 
-        print(
-            'DEBUG: 🔄 Updating Teacher table only due to Parse ACL restrictions');
-
-        // Step 2: Update Teacher record with new username
-        final teacherResponse = await http.put(
-          Uri.parse(
-              'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+        // Step 1: Update User account username
+        final userResponse = await http.put(
+          Uri.parse('https://parseapi.back4app.com/users/$userId'),
           headers: headers,
           body: jsonEncode({
             'username': newUsername,
-            'lastModified': {
-              '__type': 'Date',
-              'iso': DateTime.now().toIso8601String(),
-            },
           }),
         );
 
-        if (teacherResponse.statusCode == 200) {
-          print('DEBUG: ✅ Teacher username updated successfully');
-          print(
-              'DEBUG: ⚠️  Note: User account username not updated due to Parse ACL restrictions');
+        if (userResponse.statusCode == 200) {
+          print('DEBUG: ✅ User username updated successfully');
 
-          // Update local state
-          setState(() {
-            _teacherUsername = newUsername;
-          });
+          // Step 2: Update Teacher record with new username
+          final teacherResponse = await http.put(
+            Uri.parse(
+                'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+            headers: headers,
+            body: jsonEncode({
+              'username': newUsername,
+              'lastModified': {
+                '__type': 'Date',
+                'iso': DateTime.now().toIso8601String(),
+              },
+            }),
+          );
 
-          if (mounted) {
-            Navigator.pop(context); // Close loading dialog
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                    'Username updated in Teacher record. Note: User account requires recreation for login.'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 6),
-              ),
+          if (teacherResponse.statusCode == 200) {
+            print('DEBUG: ✅ Teacher username updated successfully');
+            print('DEBUG: ✅ Both User and Teacher records updated');
+
+            // Update local state
+            setState(() {
+              _teacherUsername = newUsername;
+            });
+
+            // Update cache
+            await CacheService.saveTeacherCredentials(
+              teacherId: widget.teacher.objectId,
+              username: newUsername,
+              password: _teacherPassword,
+              hasUserAccount: _hasUserAccount,
             );
+
+            if (mounted) {
+              Navigator.pop(context); // Close loading dialog
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                      'Username updated successfully! Teacher can now login with new username.'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 4),
+                ),
+              );
+            }
+          } else {
+            throw Exception(
+                'Failed to update teacher record: ${teacherResponse.body}');
           }
         } else {
-          throw Exception(
-              'Failed to update teacher record: ${teacherResponse.body}');
+          // Handle ACL error gracefully
+          final errorData = jsonDecode(userResponse.body);
+          final errorMessage = errorData['error'] ?? userResponse.body;
+
+          print(
+              'DEBUG: ❌ User update failed due to ACL restrictions: $errorMessage');
+
+          // If it's an ACL/permission error, update only Teacher record and show info
+          if (errorMessage.toString().contains('Cannot modify user') ||
+              errorMessage.toString().contains('ACL') ||
+              userResponse.statusCode == 403) {
+            print(
+                'DEBUG: 🔄 ACL restriction detected, updating Teacher record only');
+
+            // Update Teacher record with new username
+            final teacherResponse = await http.put(
+              Uri.parse(
+                  'https://parseapi.back4app.com/classes/Teacher/${widget.teacher.objectId}'),
+              headers: headers,
+              body: jsonEncode({
+                'username': newUsername,
+                'lastModified': {
+                  '__type': 'Date',
+                  'iso': DateTime.now().toIso8601String(),
+                },
+              }),
+            );
+
+            if (teacherResponse.statusCode == 200) {
+              print('DEBUG: ✅ Teacher username updated in Teacher record');
+
+              // Update local state
+              setState(() {
+                _teacherUsername = newUsername;
+              });
+
+              if (mounted) {
+                Navigator.pop(context); // Close loading dialog
+                _showACLRestrictionDialog('username', newUsername);
+              }
+            } else {
+              throw Exception(
+                  'Failed to update teacher record: ${teacherResponse.body}');
+            }
+          } else {
+            throw Exception('Failed to update user username: $errorMessage');
+          }
         }
       } else {
         throw Exception('Teacher not found');
@@ -2146,14 +2527,31 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
       if (response.statusCode == 200) {
         print('DEBUG: ✅ Photo updated successfully');
 
+        // Clear the image cache for this teacher to force fresh load
+        try {
+          final box = await Hive.openBox('teacherImages');
+          await box.delete(widget.teacher.objectId);
+          print(
+              '🗑️ Cleared image cache for teacher after photo update: ${widget.teacher.objectId}');
+
+          // Reset cached image bytes and reload the image
+          setState(() {
+            _cachedImageBytes = null;
+          });
+
+          // Reload the image with new URL
+          await _loadTeacherImage();
+        } catch (e) {
+          print('❌ Error clearing image cache after photo update: $e');
+        }
+
         if (mounted) {
           Navigator.pop(context); // Close loading dialog
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                  'Photo updated successfully! Please refresh to see changes.'),
+              content: Text('Photo updated successfully!'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
+              duration: Duration(seconds: 3),
             ),
           );
         }
@@ -2375,23 +2773,31 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
       if (response.statusCode == 200) {
         print('DEBUG: ✅ Teacher photo URL updated successfully');
 
+        // Clear the image cache for this teacher to force fresh load
+        try {
+          final box = await Hive.openBox('teacherImages');
+          await box.delete(widget.teacher.objectId);
+          print(
+              '🗑️ Cleared image cache for teacher after URL photo update: ${widget.teacher.objectId}');
+
+          // Reset cached image bytes and reload the image
+          setState(() {
+            _cachedImageBytes = null;
+          });
+
+          // Reload the image with new URL
+          await _loadTeacherImage();
+        } catch (e) {
+          print('❌ Error clearing image cache after URL photo update: $e');
+        }
+
         if (mounted) {
           Navigator.pop(context); // Close loading dialog
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                  'Photo updated successfully! Please refresh to see changes.'),
+              content: Text('Photo updated successfully!'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
-            ),
-          );
-
-          // Optionally refresh the screen
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  TeacherDetailScreen(teacher: widget.teacher),
+              duration: Duration(seconds: 3),
             ),
           );
         }
@@ -2600,5 +3006,101 @@ class TeacherDetailScreenState extends State<TeacherDetailScreen> {
         );
       }
     }
+  }
+
+  void _showACLRestrictionDialog(String type, String newValue) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[600]),
+            const SizedBox(width: 8),
+            const Text('Partial Update Complete'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The $type has been updated in the Teacher record but could not be updated in the User account due to Parse Server security restrictions.',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          color: Colors.orange[600], size: 20),
+                      const SizedBox(width: 8),
+                      const Text('What this means:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('• The new $type is saved: $newValue'),
+                  const Text('• Teacher cannot login with new credentials yet'),
+                  const Text(
+                      '• Account recreation is required for login access'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline,
+                          color: Colors.blue[600], size: 20),
+                      const SizedBox(width: 8),
+                      const Text('Solution:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Use "Recreate Account with New Credentials" button below to create a working login account.'),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showRecreateAccountDialog();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Recreate Account Now'),
+          ),
+        ],
+      ),
+    );
   }
 }

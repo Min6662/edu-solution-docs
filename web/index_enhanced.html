@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  
+  <!-- SEO Meta Tags -->
+  <title>Edu Solution - Advanced School Management System</title>
+  <meta name="description" content="Modern school management platform with student enrollment, class management, QR attendance, and comprehensive educational tools. Built for schools, teachers, and administrators.">
+  <meta name="keywords" content="school management, student management, education software, class management, attendance tracking, QR code, educational platform, academic administration">
+  <meta name="author" content="Edu Solution Team">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://edusolution.app/">
+  <meta property="og:title" content="Edu Solution - Advanced School Management System">
+  <meta property="og:description" content="Modern school management platform with student enrollment, class management, QR attendance, and comprehensive educational tools.">
+  <meta property="og:image" content="icons/Icon-512.png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:site_name" content="Edu Solution">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://edusolution.app/">
+  <meta property="twitter:title" content="Edu Solution - Advanced School Management System">
+  <meta property="twitter:description" content="Modern school management platform with student enrollment, class management, QR attendance, and comprehensive educational tools.">
+  <meta property="twitter:image" content="icons/Icon-512.png">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Edu Solution">
+  <meta name="mobile-web-app-capable" content="yes">
+  
+  <!-- Theme Colors -->
+  <meta name="theme-color" content="#667eea">
+  <meta name="msapplication-navbutton-color" content="#667eea">
+  <meta name="apple-mobile-web-app-status-bar-style" content="#667eea">
+  
+  <!-- Icons -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="shortcut icon" type="image/png" href="favicon.png"/>
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png">
+
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Preconnect to external domains for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- Structured Data for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Edu Solution",
+    "description": "Modern school management platform with student enrollment, class management, QR attendance, and comprehensive educational tools.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web Browser",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Organization",
+      "name": "Edu Solution Team"
+    }
+  }
+  </script>
+  
+  <style>
+    /* Enhanced loading screen styles */
+    * {
+      box-sizing: border-box;
+    }
+    
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .loading-container {
+      text-align: center;
+      color: white;
+      max-width: 400px;
+      padding: 40px 20px;
+    }
+    
+    .loading-logo {
+      width: 80px;
+      height: 80px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top: 4px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 30px;
+    }
+    
+    .loading-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    
+    .loading-subtitle {
+      font-size: 16px;
+      opacity: 0.9;
+      margin-bottom: 30px;
+      line-height: 1.5;
+    }
+    
+    .loading-features {
+      font-size: 14px;
+      opacity: 0.8;
+      line-height: 1.6;
+    }
+    
+    .loading-progress {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 2px;
+      margin-top: 25px;
+      overflow: hidden;
+    }
+    
+    .loading-progress-bar {
+      height: 100%;
+      background: white;
+      border-radius: 2px;
+      animation: progress 3s ease-in-out infinite;
+      transform: translateX(-100%);
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    @keyframes progress {
+      0% { transform: translateX(-100%); }
+      50% { transform: translateX(0%); }
+      100% { transform: translateX(100%); }
+    }
+    
+    /* Hide loading screen when app loads */
+    .loaded .loading-container {
+      display: none;
+    }
+    
+    .loaded body {
+      overflow: auto;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 480px) {
+      .loading-container {
+        padding: 20px;
+      }
+      
+      .loading-title {
+        font-size: 24px;
+      }
+      
+      .loading-logo {
+        width: 60px;
+        height: 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container" id="loading">
+    <div class="loading-logo"></div>
+    <div class="loading-title">Edu Solution</div>
+    <div class="loading-subtitle">Advanced School Management Platform</div>
+    <div class="loading-features">
+      ✓ Student Management<br>
+      ✓ Class Enrollment<br>
+      ✓ QR Attendance Tracking<br>
+      ✓ Multi-language Support
+    </div>
+    <div class="loading-progress">
+      <div class="loading-progress-bar"></div>
+    </div>
+  </div>
+  
+  <script>
+    // Enhanced loading management
+    let loadingTimeout;
+    
+    // Hide loading screen when Flutter app loads
+    window.addEventListener('flutter-first-frame', function () {
+      clearTimeout(loadingTimeout);
+      document.body.classList.add('loaded');
+    });
+    
+    // Fallback: hide loading screen after 15 seconds
+    loadingTimeout = setTimeout(function() {
+      document.body.classList.add('loaded');
+    }, 15000);
+    
+    // Service Worker registration for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('flutter-first-frame', function () {
+        navigator.serviceWorker.register('flutter_service_worker.js?v=' + new Date().getTime());
+      });
+    }
+  </script>
+  
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
