@@ -418,5 +418,34 @@
   "morningClass": "Morning Class",
   "eveningClass": "Evening Class",
   "selectMorningClass": "Select Morning Class (Optional)",
-  "selectEveningClass": "Select Evening Class (Optional)"
+  "selectEveningClass": "Select Evening Class (Optional)",
+  "parentBusiness": "Parent's Business",
+  "studyFeePeriod": "Study Fee Period",
+  "selectStudyFeePeriod": "Select Study Fee Period",
+  "oneMonth": "1 Month",
+  "fiveMonths": "5 Months",
+  "oneYear": "1 Year",
+  "paidDate": "Paid Date",
+  "renewalDate": "Renewal Date",
+  "renewPayment": "Renew Payment",
+  "paymentRenewed": "Payment renewed! Next renewal: {renewalDate}",
+  "@paymentRenewed": {
+    "placeholders": {
+      "renewalDate": {
+        "type": "String"
+      }
+    }
+  },
+  "pleaseSelectStudyFeePeriodFirst": "Please select a study fee period first",
+  "paymentOverdue": "Payment Overdue",
+  "paymentDueSoon": "Payment Due Soon",
+  "paymentUpToDate": "Payment Up to Date",
+  "fee": "Fee",
+  "renew": "Renew",
+  "camera": "Camera",
+  "gallery": "Gallery",
+  "chooseImageSource": "Choose Image Source",
+  "takePhoto": "Take Photo",
+  "chooseFromGallery": "Choose from Gallery",
+  "qrScannerTitle": "QR Scanner"
 }

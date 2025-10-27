@@ -31,6 +31,22 @@ class _StudentDashboardState extends State<StudentDashboard> {
     _loadCachedStudents();
   }
 
+  // Helper method to get localized study fee period
+  String _getLocalizedPeriod(String? englishPeriod) {
+    if (englishPeriod == null || englishPeriod.isEmpty) return '';
+    final l10n = AppLocalizations.of(context)!;
+    switch (englishPeriod) {
+      case '1 Month':
+        return l10n.oneMonth;
+      case '5 Months':
+        return l10n.fiveMonths;
+      case '1 Year':
+        return l10n.oneYear;
+      default:
+        return englishPeriod;
+    }
+  }
+
   Future<void> _fetchUserRole() async {
     try {
       final user = await ParseUser.currentUser();
@@ -512,6 +528,26 @@ class _StudentDashboardState extends State<StudentDashboard> {
                           final name = student['name'] ?? '';
                           final years = student['yearsOfExperience'] ?? 0;
 
+                          // Localize study fee period
+                          String getLocalizedPeriod(String? englishPeriod) {
+                            if (englishPeriod == null || englishPeriod.isEmpty)
+                              return '';
+                            final l10n = AppLocalizations.of(context)!;
+                            switch (englishPeriod) {
+                              case '1 Month':
+                                return l10n.oneMonth;
+                              case '5 Months':
+                                return l10n.fiveMonths;
+                              case '1 Year':
+                                return l10n.oneYear;
+                              default:
+                                return englishPeriod;
+                            }
+                          }
+
+                          final localizedStudyFeePeriod =
+                              getLocalizedPeriod(student['studyFeePeriod']);
+
                           // Better fallback logic that handles empty strings
                           final originalPhoto = student['photo'];
                           final photoUrl = (originalPhoto == null ||
@@ -543,6 +579,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
                                 years: years,
                                 imageBytes: snapshot.data,
                                 imageUrl: photoUrl,
+                                studyFeePeriod: localizedStudyFeePeriod,
+                                paidDate: student['paidDate'],
+                                renewalDate: student['renewalDate'],
+                                parentBusiness: student['parentBusiness'],
                                 onDelete: () => _deleteStudent(studentId, name),
                                 onTap: () {
                                   // Create a copy of student data with the processed photo URL
@@ -606,6 +646,13 @@ class TeacherCard extends StatelessWidget {
   final Uint8List? imageBytes;
   final VoidCallback? onDelete;
   final VoidCallback? onTap; // Add onTap callback
+
+  // Payment tracking fields for students
+  final String? studyFeePeriod;
+  final String? paidDate;
+  final String? renewalDate;
+  final String? parentBusiness;
+
   const TeacherCard({
     super.key,
     required this.name,
@@ -618,7 +665,65 @@ class TeacherCard extends StatelessWidget {
     this.imageBytes,
     this.onDelete,
     this.onTap, // Add onTap parameter
+
+    // Payment tracking parameters
+    this.studyFeePeriod,
+    this.paidDate,
+    this.renewalDate,
+    this.parentBusiness,
   });
+
+  Color _getRenewalColor() {
+    if (renewalDate == null || renewalDate!.isEmpty) return Colors.grey;
+
+    try {
+      final renewal = DateTime.parse(renewalDate!);
+      final now = DateTime.now();
+      final daysDifference = renewal.difference(now).inDays;
+
+      if (daysDifference < 0) {
+        return Colors.red; // Overdue
+      } else if (daysDifference <= 7) {
+        return Colors.orange; // Due soon
+      } else {
+        return Colors.green; // On time
+      }
+    } catch (e) {
+      return Colors.grey;
+    }
+  }
+
+  String _getPaymentStatusText(BuildContext context) {
+    if (renewalDate == null || renewalDate!.isEmpty) return '';
+
+    try {
+      final renewal = DateTime.parse(renewalDate!);
+      final now = DateTime.now();
+      final daysDifference = renewal.difference(now).inDays;
+      final l10n = AppLocalizations.of(context)!;
+
+      if (daysDifference < 0) {
+        return l10n.paymentOverdue; // "Payment Overdue" / "ការបង់ប្រាក់យឺតពេល"
+      } else if (daysDifference <= 7) {
+        return l10n
+            .paymentDueSoon; // "Payment Due Soon" / "ការបង់ប្រាក់ដល់ពេលឆាប់ៗ"
+      } else {
+        return l10n
+            .paymentUpToDate; // "Payment Up to Date" / "ការបង់ប្រាក់ទាន់ពេល"
+      }
+    } catch (e) {
+      return '';
+    }
+  }
+
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return dateString;
+    }
+  }
 
   // Helper method to validate image URLs
   bool _isValidImageUrl(String? url) {
@@ -789,16 +894,72 @@ class TeacherCard extends StatelessWidget {
                       maxLines: 1,
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      '$years ${AppLocalizations.of(context)!.yearsOfExperience}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w400,
+
+                    // Show payment info if available (for students)
+                    if (studyFeePeriod != null &&
+                        studyFeePeriod!.isNotEmpty) ...[
+                      Tooltip(
+                        message:
+                            '${AppLocalizations.of(context)!.studyFeePeriod}: $studyFeePeriod',
+                        child: Row(
+                          children: [
+                            Icon(Icons.payments,
+                                size: 12, color: Colors.blue[600]),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${AppLocalizations.of(context)!.fee}: $studyFeePeriod',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
+                      const SizedBox(height: 2),
+                    ],
+
+                    // Show renewal date if available
+                    if (renewalDate != null && renewalDate!.isNotEmpty) ...[
+                      Tooltip(
+                        message: _getPaymentStatusText(context),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule,
+                                size: 12, color: _getRenewalColor()),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${AppLocalizations.of(context)!.renew}: ${_formatDate(renewalDate!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _getRenewalColor(),
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                    ],
+
+                    // Fallback to years of experience if no payment info
+                    if ((studyFeePeriod == null || studyFeePeriod!.isEmpty) &&
+                        (renewalDate == null || renewalDate!.isEmpty))
+                      Text(
+                        '$years ${AppLocalizations.of(context)!.yearsOfExperience}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w400,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
                   ],
                 ),
               ),

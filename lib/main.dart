@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -16,6 +17,20 @@ import 'font_test.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Set up error handling for uncaught exceptions
+  FlutterError.onError = (FlutterErrorDetails details) {
+    print('Flutter Error: ${details.exception}');
+    print('Stack Trace: ${details.stack}');
+    // In production, you might want to send this to a crash reporting service
+  };
+
+  // Handle errors that occur outside of Flutter's error handling
+  PlatformDispatcher.instance.onError = (error, stack) {
+    print('Platform Error: $error');
+    print('Stack Trace: $stack');
+    return true;
+  };
 
   // Different initialization for web vs mobile
   if (kIsWeb) {
@@ -110,16 +125,19 @@ Future<void> _initializeForMobile() async {
 
   // Initialize Parse
   try {
-    await Parse().initialize(
-      'EIbuzFd5v46RVy8iqf3vupM40l4PEcuS773XLUc5',
-      'https://parseapi.back4app.com/',
-      clientKey: 'o35E0eNihkhwtlOtwBoIASmO2htYsbAeL1BpnUdE',
-      autoSendSessionId: true,
-      debug: false, // Disabled for mobile production
-    );
+    await Parse()
+        .initialize(
+          'EIbuzFd5v46RVy8iqf3vupM40l4PEcuS773XLUc5',
+          'https://parseapi.back4app.com/',
+          clientKey: 'o35E0eNihkhwtlOtwBoIASmO2htYsbAeL1BpnUdE',
+          autoSendSessionId: true,
+          debug: false, // Disabled for mobile production
+        )
+        .timeout(const Duration(seconds: 15));
     print('✅ Parse Server initialized successfully');
   } catch (e) {
     print('❌ Parse Server initialization error: $e');
+    // Continue anyway - app should still work offline
   }
 
   runApp(
@@ -209,19 +227,38 @@ class _RoleBasedHomeState extends State<RoleBasedHome> {
   Future<void> _getUserRole() async {
     try {
       print('🔍 Checking user authentication...');
-      final user = await ParseUser.currentUser();
+
+      // Add timeout and error handling for Parse operations
+      final user = await ParseUser.currentUser()
+          .timeout(const Duration(seconds: 10))
+          .catchError((error) {
+        print('❌ Error getting current user: $error');
+        return null;
+      });
+
       print('👤 Current user: ${user?.objectId ?? 'null'}');
 
       if (user != null) {
-        final role = user.get<String>('role');
-        print('🎭 User role: $role');
+        try {
+          final role = user.get<String>('role');
+          print('🎭 User role: $role');
 
-        if (mounted) {
-          setState(() {
-            userRole = role;
-            isLoading = false;
-            hasError = false;
-          });
+          if (mounted) {
+            setState(() {
+              userRole = role;
+              isLoading = false;
+              hasError = false;
+            });
+          }
+        } catch (e) {
+          print('❌ Error getting user role: $e');
+          if (mounted) {
+            setState(() {
+              userRole = null;
+              isLoading = false;
+              hasError = false;
+            });
+          }
         }
       } else {
         print('🚪 No current user, showing login');
@@ -237,8 +274,9 @@ class _RoleBasedHomeState extends State<RoleBasedHome> {
       print('❌ Error getting user role: $e');
       if (mounted) {
         setState(() {
-          hasError = true;
+          hasError = false; // Don't show error screen, just go to login
           isLoading = false;
+          userRole = null;
         });
       }
     }

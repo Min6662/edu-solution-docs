@@ -418,5 +418,34 @@
   "morningClass": "ថ្នាក់ព្រឹក",
   "eveningClass": "ថ្នាក់ល្ងាច",
   "selectMorningClass": "ជ្រើសរើសថ្នាក់ព្រឹក (ស្រេចចិត្ត)",
-  "selectEveningClass": "ជ្រើសរើសថ្នាក់ល្ងាច (ស្រេចចិត្ត)"
+  "selectEveningClass": "ជ្រើសរើសថ្នាក់ល្ងាច (ស្រេចចិត្ត)",
+  "parentBusiness": "អាជីវកម្មឪពុកម្តាយ",
+  "studyFeePeriod": "រយៈពេលថ្លៃសិក្សា",
+  "selectStudyFeePeriod": "ជ្រើសរើសរយៈពេលថ្លៃសិក្សា",
+  "oneMonth": "១ ខែ",
+  "fiveMonths": "៥ ខែ",
+  "oneYear": "១ ឆ្នាំ",
+  "paidDate": "កាលបរិច្ឆេទបង់ប្រាក់",
+  "renewalDate": "កាលបរិច្ឆេទបន្ត",
+  "renewPayment": "បន្តការបង់ប្រាក់",
+  "paymentRenewed": "បង់ប្រាក់បន្តបានហើយ! ការបន្តបន្ទាប់: {renewalDate}",
+  "@paymentRenewed": {
+    "placeholders": {
+      "renewalDate": {
+        "type": "String"
+      }
+    }
+  },
+  "pleaseSelectStudyFeePeriodFirst": "សូមជ្រើសរើសរយៈពេលថ្លៃសិក្សាមុនសិន",
+  "paymentOverdue": "ការបង់ប្រាក់យឺតពេល",
+  "paymentDueSoon": "ការបង់ប្រាក់ដល់ពេលឆាប់ៗ",
+  "paymentUpToDate": "ការបង់ប្រាក់ទាន់ពេល",
+  "fee": "រយៈពេល",
+  "renew": "ថ្ងៃបង់បន្ត",
+  "camera": "កាមេរ៉ា",
+  "gallery": "រូបភាព",
+  "chooseImageSource": "ជ្រើសរើសប្រភពរូបភាព",
+  "takePhoto": "ថតរូប",
+  "chooseFromGallery": "ជ្រើសរើសពីរូបភាព",
+  "qrScannerTitle": "ស្កេន QR"
 }

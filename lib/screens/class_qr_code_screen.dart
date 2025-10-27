@@ -1,10 +1,5 @@
-import 'dart:ui' as ui;
-import 'dart:typed_data';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'package:hive/hive.dart';
 
 class ClassQRCodeScreen extends StatefulWidget {
@@ -19,7 +14,6 @@ class _ClassQRCodeScreenState extends State<ClassQRCodeScreen> {
   String? selectedClassId;
   bool loading = true;
   String error = '';
-  final GlobalKey qrKey = GlobalKey();
 
   @override
   void initState() {
@@ -153,69 +147,41 @@ class _ClassQRCodeScreenState extends State<ClassQRCodeScreen> {
                         Column(
                           children: [
                             Center(
-                              child: RepaintBoundary(
-                                key: qrKey,
-                                child: QrImageView(
-                                  data: selectedClassId!,
-                                  version: QrVersions.auto,
-                                  size: 220.0,
-                                  backgroundColor: Colors.white,
-                                ),
+                              child: Text(
+                                (cachedClasses.firstWhere(
+                                      (cls) =>
+                                          cls['objectId'] == selectedClassId,
+                                      orElse: () =>
+                                          <String, String?>{'classname': ''},
+                                    )['classname'] ??
+                                    ''),
+                                style: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ),
                             const SizedBox(height: 16),
-                            Text(
-                              (cachedClasses.firstWhere(
-                                    (cls) => cls['objectId'] == selectedClassId,
-                                    orElse: () =>
-                                        <String, String?>{'classname': ''},
-                                  )['classname'] ??
-                                  ''),
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.download),
-                              label: const Text('Save QR to Gallery'),
-                              onPressed: () async {
-                                try {
-                                  RenderRepaintBoundary boundary =
-                                      qrKey.currentContext!.findRenderObject()
-                                          as RenderRepaintBoundary;
-                                  ui.Image image =
-                                      await boundary.toImage(pixelRatio: 3.0);
-                                  ByteData? byteData = await image.toByteData(
-                                      format: ui.ImageByteFormat.png);
-                                  Uint8List pngBytes =
-                                      byteData!.buffer.asUint8List();
-                                  final result =
-                                      await ImageGallerySaver.saveImage(
-                                    pngBytes,
-                                    quality: 100,
-                                    name: 'class_qr_${selectedClassId}',
-                                  );
-                                  if (result['isSuccess'] == true) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                          content:
-                                              Text('QR code saved to gallery')),
-                                    );
-                                  } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text(
-                                              'Failed to save QR code: ${result['errorMessage'] ?? 'Unknown error'}')),
-                                    );
-                                  }
-                                } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content:
-                                            Text('Failed to save QR code: $e')),
-                                  );
-                                }
-                              },
+                            // Save to Gallery temporarily disabled
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border:
+                                    Border.all(color: Colors.orange.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.info,
+                                      color: Colors.orange.shade700),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Save to Gallery feature temporarily disabled for Android compatibility',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),

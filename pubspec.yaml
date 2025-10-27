@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.8+8
+version: 1.1.1+13
 
 environment:
   sdk: '>=3.4.1 <4.0.0'
@@ -42,20 +42,20 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.6
   parse_server_sdk_flutter: ^9.0.0
-  qr_code_scanner: ^1.0.0
+  # qr_code_scanner: ^1.0.0  # Temporarily disabled - namespace issue with AGP 8.1.0
   qr_flutter: ^4.1.0
-  # mobile_scanner: ^5.0.2  # Disabled due to simulator issues
+  mobile_scanner: ^5.1.1 # Using a recent version
   zxing2: ^0.2.3  # Pure Dart QR decoder that works on simulator
   image: ^4.2.0  # For image processing
-  image_gallery_saver: ^2.0.3
+  # image_gallery_saver: ^2.0.3  # Temporarily disabled - namespace issue with AGP 8.1.0
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   shared_preferences: ^2.2.3
   google_fonts: ^4.0.4
   
   # Override packages with privacy manifest support
-  connectivity_plus: ^7.0.0
-  package_info_plus: ^9.0.0
+  connectivity_plus: ^6.0.3
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:
@@ -109,5 +109,5 @@ flutter:
 
 # Force newer versions with privacy manifest support
 dependency_overrides:
-  connectivity_plus: ^7.0.0
-  package_info_plus: ^9.0.0
+  connectivity_plus: ^6.0.3
+  package_info_plus: ^8.0.0

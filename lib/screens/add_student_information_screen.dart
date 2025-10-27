@@ -29,6 +29,8 @@ class _AddStudentInformationScreenState
   final TextEditingController studyStatusController = TextEditingController();
   final TextEditingController motherNameController = TextEditingController();
   final TextEditingController fatherNameController = TextEditingController();
+  final TextEditingController parentBusinessController =
+      TextEditingController();
   final TextEditingController placeOfBirthController = TextEditingController();
   DateTime? dateOfBirth;
   File? imageFile;
@@ -42,6 +44,85 @@ class _AddStudentInformationScreenState
   Map<String, dynamic>? selectedMorningClass;
   Map<String, dynamic>? selectedEveningClass;
   bool loadingClasses = false;
+
+  // Study fee period dropdown
+  final List<String> studyFeePeriods = ['1 Month', '5 Months', '1 Year'];
+
+  // Helper methods to map between localized and stored values
+  String _getLocalizedPeriod(String? englishPeriod) {
+    if (englishPeriod == null) return '';
+    final l10n = AppLocalizations.of(context)!;
+    switch (englishPeriod) {
+      case '1 Month':
+        return l10n.oneMonth;
+      case '5 Months':
+        return l10n.fiveMonths;
+      case '1 Year':
+        return l10n.oneYear;
+      default:
+        return englishPeriod;
+    }
+  }
+
+  String _getEnglishPeriod(String? localizedPeriod) {
+    if (localizedPeriod == null) return '';
+    final l10n = AppLocalizations.of(context)!;
+    if (localizedPeriod == l10n.oneMonth) return '1 Month';
+    if (localizedPeriod == l10n.fiveMonths) return '5 Months';
+    if (localizedPeriod == l10n.oneYear) return '1 Year';
+    return localizedPeriod;
+  }
+
+  String? selectedStudyFeePeriod;
+
+  // Payment date tracking
+  DateTime? paidDate;
+  DateTime? renewalDate;
+
+  void _calculateRenewalDate() {
+    if (paidDate != null && selectedStudyFeePeriod != null) {
+      print('=== CALCULATING RENEWAL DATE ===');
+      print('Paid Date: $paidDate');
+      print('Study Fee Period: $selectedStudyFeePeriod');
+
+      // Convert to English period if it's localized
+      final englishPeriod = _getEnglishPeriod(selectedStudyFeePeriod);
+
+      switch (englishPeriod) {
+        case '1 Month':
+          renewalDate =
+              DateTime(paidDate!.year, paidDate!.month + 1, paidDate!.day);
+          break;
+        case '5 Months':
+          renewalDate =
+              DateTime(paidDate!.year, paidDate!.month + 5, paidDate!.day);
+          break;
+        case '1 Year':
+          renewalDate =
+              DateTime(paidDate!.year + 1, paidDate!.month, paidDate!.day);
+          break;
+      }
+
+      print('Calculated Renewal Date: $renewalDate');
+      print('===============================');
+    } else {
+      print(
+          'Cannot calculate renewal date - paidDate: $paidDate, selectedStudyFeePeriod: $selectedStudyFeePeriod');
+    }
+  }
+
+  void _updateGradeController() {
+    String gradeText = '';
+    if (selectedMorningClass != null && selectedEveningClass != null) {
+      gradeText =
+          '${selectedMorningClass!['classname']} / ${selectedEveningClass!['classname']}';
+    } else if (selectedMorningClass != null) {
+      gradeText = '${selectedMorningClass!['classname']} (Morning)';
+    } else if (selectedEveningClass != null) {
+      gradeText = '${selectedEveningClass!['classname']} (Evening)';
+    }
+    gradeController.text = gradeText;
+  }
 
   @override
   void initState() {
@@ -60,6 +141,7 @@ class _AddStudentInformationScreenState
   }
 
   void _addFormListeners() {
+    // No controller for dropdown, but save to cache on change
     nameController.addListener(_saveFormDataToCache);
     gradeController.addListener(_saveFormDataToCache);
     addressController.addListener(_saveFormDataToCache);
@@ -67,6 +149,7 @@ class _AddStudentInformationScreenState
     studyStatusController.addListener(_saveFormDataToCache);
     motherNameController.addListener(_saveFormDataToCache);
     fatherNameController.addListener(_saveFormDataToCache);
+    parentBusinessController.addListener(_saveFormDataToCache);
     placeOfBirthController.addListener(_saveFormDataToCache);
   }
 
@@ -121,6 +204,7 @@ class _AddStudentInformationScreenState
     studyStatusController.removeListener(_saveFormDataToCache);
     motherNameController.removeListener(_saveFormDataToCache);
     fatherNameController.removeListener(_saveFormDataToCache);
+    parentBusinessController.removeListener(_saveFormDataToCache);
     placeOfBirthController.removeListener(_saveFormDataToCache);
 
     // Dispose controllers
@@ -131,6 +215,7 @@ class _AddStudentInformationScreenState
     studyStatusController.dispose();
     motherNameController.dispose();
     fatherNameController.dispose();
+    parentBusinessController.dispose();
     placeOfBirthController.dispose();
 
     super.dispose();
@@ -180,6 +265,7 @@ class _AddStudentInformationScreenState
         'studyStatus': studyStatusController.text,
         'motherName': motherNameController.text,
         'fatherName': fatherNameController.text,
+        'parentBusiness': parentBusinessController.text,
         'placeOfBirth': placeOfBirthController.text,
         'morningClassId': selectedMorningClass?['objectId'],
         'morningClassName': selectedMorningClass?['classname'],
@@ -190,6 +276,9 @@ class _AddStudentInformationScreenState
         'hasImageFile': imageFile != null,
         'imageFileName': imageFile?.path.split('/').last,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'studyFeePeriod': selectedStudyFeePeriod,
+        'paidDate': paidDate?.toIso8601String(),
+        'renewalDate': renewalDate?.toIso8601String(),
       };
 
       await box.put('draftFormData', formData);
@@ -271,9 +360,19 @@ class _AddStudentInformationScreenState
               motherNameController.text = formData['motherName'] ?? '';
               fatherNameController.text = formData['fatherName'] ?? '';
               placeOfBirthController.text = formData['placeOfBirth'] ?? '';
+              parentBusinessController.text = formData['parentBusiness'] ?? '';
               existingImageUrl = formData['existingImageUrl'];
               photoDeleted =
                   formData['photoDeleted'] ?? false; // Restore deletion flag
+              selectedStudyFeePeriod = formData['studyFeePeriod'];
+
+              // Restore payment dates
+              if (formData['paidDate'] != null) {
+                paidDate = DateTime.parse(formData['paidDate']);
+              }
+              if (formData['renewalDate'] != null) {
+                renewalDate = DateTime.parse(formData['renewalDate']);
+              }
             });
 
             // Load cached image if available
@@ -559,6 +658,7 @@ class _AddStudentInformationScreenState
 
   void _populateFields() {
     final data = widget.studentData!;
+    selectedStudyFeePeriod = data['studyFeePeriod'];
 
     // Enhanced debug logging
     print('=== ENHANCED EDIT SCREEN DEBUG ===');
@@ -577,6 +677,23 @@ class _AddStudentInformationScreenState
     fatherNameController.text = data['fatherName'] ?? '';
     placeOfBirthController.text = data['placeOfBirth'] ?? '';
     existingImageUrl = data['photo'];
+    parentBusinessController.text = data['parentBusiness'] ?? '';
+
+    // Restore payment dates
+    if (data['paidDate'] != null) {
+      try {
+        paidDate = DateTime.parse(data['paidDate']);
+      } catch (e) {
+        print('Error parsing paidDate: $e');
+      }
+    }
+    if (data['renewalDate'] != null) {
+      try {
+        renewalDate = DateTime.parse(data['renewalDate']);
+      } catch (e) {
+        print('Error parsing renewalDate: $e');
+      }
+    }
 
     // Debug print populated values
     print('=== POPULATED FIELD VALUES ===');
@@ -604,8 +721,29 @@ class _AddStudentInformationScreenState
   }
 
   Future<void> _pickImage() async {
+    final imageSource = await showDialog<ImageSource>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppLocalizations.of(context)!.chooseImageSource),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.camera_alt),
+            label: Text(AppLocalizations.of(context)!.takePhoto),
+            onPressed: () => Navigator.pop(context, ImageSource.camera),
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.photo_library),
+            label: Text(AppLocalizations.of(context)!.chooseFromGallery),
+            onPressed: () => Navigator.pop(context, ImageSource.gallery),
+          ),
+        ],
+      ),
+    );
+
+    if (imageSource == null) return;
+
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final pickedFile = await picker.pickImage(source: imageSource);
     if (pickedFile != null) {
       setState(() {
         imageFile = File(pickedFile.path);
@@ -761,9 +899,13 @@ class _AddStudentInformationScreenState
         ..set('studyStatus', studyStatusController.text.trim())
         ..set('motherName', motherNameController.text.trim())
         ..set('fatherName', fatherNameController.text.trim())
+        ..set('parentBusiness', parentBusinessController.text.trim())
         ..set('placeOfBirth', placeOfBirthController.text.trim())
         ..set('dateOfBirth', dateOfBirth?.toIso8601String())
-        ..set('photo', photoUrl ?? '');
+        ..set('photo', photoUrl ?? '')
+        ..set('studyFeePeriod', selectedStudyFeePeriod)
+        ..set('paidDate', paidDate?.toIso8601String())
+        ..set('renewalDate', renewalDate?.toIso8601String());
 
       // Set morning class relationship if selected
       if (selectedMorningClass != null) {
@@ -798,11 +940,11 @@ class _AddStudentInformationScreenState
       print('IsEditing: $isEditing');
       print('ImageFile selected: ${imageFile != null}');
       print('PhotoUrl being saved: "$photoUrl"');
+      print('Study Fee Period: "$selectedStudyFeePeriod"');
+      print('Paid Date: "$paidDate"');
+      print('Renewal Date: "$renewalDate"');
+      print('Parent Business: "${parentBusinessController.text.trim()}"');
       print('========================');
-
-      // TODO: Replace with actual school context when multi-tenant system is implemented
-      // For now, this will be null until school selection is implemented
-      // student.set('school', ParseObject('School')..objectId = currentSchoolId);
 
       final response = await student.save();
 
@@ -1043,19 +1185,6 @@ class _AddStudentInformationScreenState
               ),
       ),
     );
-  }
-
-  void _updateGradeController() {
-    String gradeText = '';
-    if (selectedMorningClass != null && selectedEveningClass != null) {
-      gradeText =
-          '${selectedMorningClass!['classname']} / ${selectedEveningClass!['classname']}';
-    } else if (selectedMorningClass != null) {
-      gradeText = '${selectedMorningClass!['classname']} (Morning)';
-    } else if (selectedEveningClass != null) {
-      gradeText = '${selectedEveningClass!['classname']} (Evening)';
-    }
-    gradeController.text = gradeText;
   }
 
   Widget _eveningClassDropdownField() {
@@ -1344,8 +1473,179 @@ class _AddStudentInformationScreenState
     }
   }
 
+  Future<void> _selectPaidDate() async {
+    DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: paidDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF667EEA),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+            dialogBackgroundColor: Colors.white,
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        paidDate = picked;
+        _calculateRenewalDate();
+      });
+      print('=== PAID DATE SELECTED ===');
+      print('Paid Date: $paidDate');
+      print('Renewal Date: $renewalDate');
+      print('Study Fee Period: $selectedStudyFeePeriod');
+      print('========================');
+      _saveFormDataToCache(); // Save to cache when date changes
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    Widget _studyFeeDropdownField() {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: DropdownButtonFormField<String>(
+          value: _getLocalizedPeriod(selectedStudyFeePeriod),
+          isExpanded: true,
+          decoration: InputDecoration(
+            prefixIcon: Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.payments, color: Colors.white, size: 20),
+            ),
+            labelText: AppLocalizations.of(context)!.studyFeePeriod,
+            labelStyle: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+            floatingLabelStyle: const TextStyle(
+              color: Color(0xFF667EEA),
+              fontWeight: FontWeight.bold,
+            ),
+            filled: true,
+            fillColor: Colors.transparent,
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
+            ),
+          ),
+          items: [
+            AppLocalizations.of(context)!.oneMonth,
+            AppLocalizations.of(context)!.fiveMonths,
+            AppLocalizations.of(context)!.oneYear
+          ].map((period) {
+            return DropdownMenuItem<String>(
+              value: period,
+              child: Text(
+                period,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF2D3748),
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            setState(() {
+              selectedStudyFeePeriod = _getEnglishPeriod(newValue);
+              _calculateRenewalDate(); // Recalculate renewal date when period changes
+            });
+            _saveFormDataToCache();
+          },
+          hint: Text(
+            AppLocalizations.of(context)!.selectStudyFeePeriod,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    Widget _renewPaymentButton() {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          icon: const Icon(Icons.refresh, color: Colors.white),
+          label: Text(
+            AppLocalizations.of(context)!.renewPayment,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF667EEA),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          onPressed: () {
+            if (selectedStudyFeePeriod != null) {
+              setState(() {
+                paidDate = DateTime.now();
+                _calculateRenewalDate();
+              });
+              _saveFormDataToCache();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(AppLocalizations.of(context)!.paymentRenewed(
+                      renewalDate != null
+                          ? renewalDate!.toIso8601String().split('T').first
+                          : 'N/A')),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(AppLocalizations.of(context)!
+                      .pleaseSelectStudyFeePeriodFirst),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
+        ),
+      );
+    }
+
     final l10n = AppLocalizations.of(context)!;
 
     return Consumer<LanguageService>(
@@ -1607,6 +1907,62 @@ class _AddStudentInformationScreenState
                             icon: Icons.home_outlined,
                             label: l10n.address,
                             controller: addressController),
+                        _studyFeeDropdownField(),
+                        _inputField(
+                            icon: Icons.calendar_today,
+                            label: AppLocalizations.of(context)!.paidDate,
+                            controller: TextEditingController(
+                                text: paidDate != null
+                                    ? paidDate!
+                                        .toIso8601String()
+                                        .split('T')
+                                        .first
+                                    : ''),
+                            readOnly: true,
+                            onTap: _selectPaidDate),
+                        if (renewalDate != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[50],
+                              border: Border.all(color: Colors.orange[300]!),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.schedule, color: Colors.orange[600]),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        AppLocalizations.of(context)!
+                                            .renewalDate,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.orange[800],
+                                        ),
+                                      ),
+                                      Text(
+                                        renewalDate!
+                                            .toIso8601String()
+                                            .split('T')
+                                            .first,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.orange[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        _renewPaymentButton(),
                         _inputField(
                             icon: Icons.phone_outlined,
                             label: l10n.phoneNumber,
@@ -1623,6 +1979,10 @@ class _AddStudentInformationScreenState
                             icon: Icons.man,
                             label: l10n.fatherName,
                             controller: fatherNameController),
+                        _inputField(
+                            icon: Icons.business_center,
+                            label: AppLocalizations.of(context)!.parentBusiness,
+                            controller: parentBusinessController),
                         _inputField(
                             icon: Icons.location_on_outlined,
                             label: l10n.placeOfBirth,
