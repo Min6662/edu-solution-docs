@@ -201,6 +201,11 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       final teacherPointer = ParseObject('Teacher')..objectId = teacherId;
       final classPointer = ParseObject('Class')..objectId = classId;
 
+      print('=== SCHEDULE QUERY DEBUG ===');
+      print('Teacher Pointer ID: $teacherId');
+      print('Class Pointer ID: $classId');
+      print('Current Day: $currentDay');
+
       final scheduleQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
         ..whereEqualTo('teacher', teacherPointer)
         ..whereEqualTo('class', classPointer)
@@ -208,8 +213,21 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
       final scheduleResponse = await scheduleQuery.query();
 
-      print(
-          'Schedule query results: ${scheduleResponse.results?.length ?? 0} entries');
+      print('Schedule query success: ${scheduleResponse.success}');
+      print('Schedule query results count: ${scheduleResponse.results?.length ?? 0}');
+      
+      // Debug: Print all results
+      if (scheduleResponse.results != null) {
+        for (int i = 0; i < scheduleResponse.results!.length; i++) {
+          final sched = scheduleResponse.results![i];
+          print('Schedule #$i:');
+          print('  - Teacher: ${sched.get<ParseObject>('teacher')?.objectId}');
+          print('  - Class: ${sched.get<ParseObject>('class')?.objectId}');
+          print('  - Day: ${sched.get<String>('day')}');
+          print('  - TimeSlot: ${sched.get<String>('timeSlot')}');
+          print('  - Subject: ${sched.get<String>('subject')}');
+        }
+      }
 
       if (!scheduleResponse.success ||
           scheduleResponse.results == null ||
@@ -218,11 +236,11 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
             '❌ No schedule found for teacher $teacherId, class $classId on $currentDay');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                  '❌ Teacher has no class scheduled for this class on this day'),
+                  '❌ No schedule found\nTeacher: $teacherId\nClass: $classId\nDay: $currentDay'),
               backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
@@ -232,10 +250,18 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       // Check if current time matches the scheduled time slot
       for (final schedule in scheduleResponse.results!) {
         final timeSlot = schedule.get<String>('timeSlot') ?? '';
-        print('Checking time slot: $timeSlot');
+        final subject = schedule.get<String>('subject') ?? 'Unknown';
+        
+        print('=== TIME SLOT MATCHING ===');
+        print('Checking time slot: $timeSlot for subject: $subject');
 
         if (timeSlot.isNotEmpty) {
           final timeParts = timeSlot.split(':');
+          if (timeParts.length < 2) {
+            print('❌ Invalid timeSlot format: $timeSlot');
+            continue;
+          }
+          
           final scheduledHour = int.tryParse(timeParts[0]) ?? 0;
           final scheduledMinute = int.tryParse(timeParts[1]) ?? 0;
 
@@ -246,15 +272,15 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
           final timeDifference = currentTimeInMinutes - scheduleTimeInMinutes;
 
           print(
-              'Scheduled time: $scheduledHour:${scheduledMinute.toString().padLeft(2, '0')}');
+              'Scheduled time: $scheduledHour:${scheduledMinute.toString().padLeft(2, '0')} = $scheduleTimeInMinutes min');
           print(
-              'Current time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
+              'Current time: $currentHour:${currentMinute.toString().padLeft(2, '0')} = $currentTimeInMinutes min');
           print('Time difference: $timeDifference minutes');
+          print('Checking range: -5 to 55 (5 min before to 55 min after)');
 
           // Accept if time is between 5 minutes before class starts and 55 minutes after
           if (timeDifference >= -5 && timeDifference <= 55) {
-            final subject = schedule.get<String>('subject') ?? 'Unknown';
-            print('✅ Valid class time for $subject!');
+            print('✅ MATCH! Valid class time for $subject!');
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -268,7 +294,11 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
             }
 
             return true;
+          } else {
+            print('❌ Time outside valid window. Difference: $timeDifference (need -5 to 55)');
           }
+        } else {
+          print('❌ Empty timeSlot');
         }
       }
 
@@ -278,7 +308,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '❌ Teacher has no class at this time (Current: $currentHour:${currentMinute.toString().padLeft(2, '0')})'),
+                '❌ No class at this time\nCurrent: $currentHour:${currentMinute.toString().padLeft(2, '0')} on $currentDay'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
