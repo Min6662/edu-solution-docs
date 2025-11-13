@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive/hive.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
 
 class ClassQRCodeScreen extends StatefulWidget {
   const ClassQRCodeScreen({super.key});
@@ -14,6 +19,7 @@ class _ClassQRCodeScreenState extends State<ClassQRCodeScreen> {
   String? selectedClassId;
   bool loading = true;
   String error = '';
+  GlobalKey qrKey = GlobalKey();
 
   @override
   void initState() {
@@ -95,6 +101,95 @@ class _ClassQRCodeScreenState extends State<ClassQRCodeScreen> {
     await _fetchClasses();
   }
 
+  Future<void> _saveQRCode() async {
+    try {
+      // Get the render object from the GlobalKey
+      final RenderRepaintBoundary? boundary =
+          qrKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+
+      if (boundary == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: Could not capture QR code'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Capture the widget as an image
+      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+      final ByteData? byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+
+      if (byteData == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: Could not generate image'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Create filename with class ID and timestamp
+      String className = 'QRCode';
+      try {
+        final classMap = cachedClasses.firstWhere(
+          (cls) => cls['objectId'] == selectedClassId,
+        );
+        className = classMap['classname']?.toString() ?? 'QRCode';
+      } catch (e) {
+        // Class not found, use default
+      }
+
+      final fileName =
+          'QR_${className}_${DateTime.now().millisecondsSinceEpoch}.png';
+
+      // Save directly to gallery using image_gallery_saver
+      final result = await ImageGallerySaver.saveImage(
+        byteData.buffer.asUint8List(),
+        quality: 100,
+        name: fileName,
+        isReturnImagePathOfIOS: true,
+      );
+
+      if (result != null && result['isSuccess'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ QR Code saved to gallery: $fileName'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ Failed to save to gallery'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving QR code: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -148,19 +243,57 @@ class _ClassQRCodeScreenState extends State<ClassQRCodeScreen> {
                           children: [
                             Center(
                               child: Text(
-                                (cachedClasses.firstWhere(
-                                      (cls) =>
-                                          cls['objectId'] == selectedClassId,
-                                      orElse: () =>
-                                          <String, String?>{'classname': ''},
-                                    )['classname'] ??
-                                    ''),
+                                () {
+                                  try {
+                                    return cachedClasses.firstWhere(
+                                          (cls) =>
+                                              cls['objectId'] ==
+                                              selectedClassId,
+                                        )['classname'] ??
+                                        '';
+                                  } catch (e) {
+                                    return '';
+                                  }
+                                }(),
                                 style: const TextStyle(
                                     fontSize: 18, fontWeight: FontWeight.bold),
                               ),
                             ),
                             const SizedBox(height: 16),
-                            // Save to Gallery temporarily disabled
+                            // QR Code Widget
+                            RepaintBoundary(
+                              key: qrKey,
+                              child: Center(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: Colors.grey),
+                                    borderRadius: BorderRadius.circular(8),
+                                    color: Colors.white,
+                                  ),
+                                  child: QrImageView(
+                                    data: selectedClassId ?? '',
+                                    version: QrVersions.auto,
+                                    size: 300.0,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // Save Button
+                            Center(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.download),
+                                label: const Text('Download QR Code'),
+                                onPressed: _saveQRCode,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Info message
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(

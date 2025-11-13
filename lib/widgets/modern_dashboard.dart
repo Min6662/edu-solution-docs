@@ -191,6 +191,30 @@ class _ModernDashboardState extends State<ModernDashboard> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final screenSize = MediaQuery.of(context).size;
+    final isSmallScreen = screenSize.width < 360;
+    final isMediumScreen = screenSize.width >= 360 && screenSize.width < 400;
+
+    // Responsive card width calculation
+    double getCardWidth() {
+      if (isSmallScreen)
+        return screenSize.width * 0.85; // 85% for small screens
+      if (isMediumScreen) return 350; // Fixed width for medium screens
+      return 380; // Original width for large screens
+    }
+
+    // Responsive card max width
+    double getCardMaxWidth() {
+      if (isSmallScreen) return screenSize.width * 0.9;
+      if (isMediumScreen) return 380;
+      return 420;
+    }
+
+    // Responsive grid columns
+    int getGridColumns() {
+      if (isSmallScreen) return 1; // Single column for very small screens
+      return 2; // Two columns for medium and large screens
+    }
 
     // Update school data cards with localized strings
     _schoolDataCards = [
@@ -325,13 +349,15 @@ class _ModernDashboardState extends State<ModernDashboard> {
             const SizedBox(height: 16),
             // Move card to top
             SizedBox(
-              height: 240,
+              height: isSmallScreen ? 200 : 240, // Responsive height
               child: Center(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.vertical,
                   child: Container(
-                    width: 380,
-                    constraints: const BoxConstraints(maxWidth: 420),
+                    width: getCardWidth(), // Use responsive width
+                    constraints: BoxConstraints(
+                        maxWidth:
+                            getCardMaxWidth()), // Use responsive max width
                     decoration: BoxDecoration(
                       color: const Color(0xFFF5E6E0), // Softer pink
                       borderRadius: BorderRadius.circular(20),
@@ -344,24 +370,36 @@ class _ModernDashboardState extends State<ModernDashboard> {
                       ],
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 32.0, horizontal: 20.0),
+                      padding: EdgeInsets.symmetric(
+                          vertical:
+                              isSmallScreen ? 24.0 : 32.0, // Responsive padding
+                          horizontal: isSmallScreen
+                              ? 16.0
+                              : 20.0), // Responsive padding
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.school,
-                                  color: Color(0xFF1565C0), size: 28),
+                              Icon(Icons.school,
+                                  color: Color(0xFF1565C0),
+                                  size: isSmallScreen
+                                      ? 24
+                                      : 28), // Responsive icon size
                               SizedBox(width: 10),
                               Text('School Overview',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: Color(0xFF1565C0),
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 18)),
+                                      fontSize: isSmallScreen
+                                          ? 16
+                                          : 18)), // Responsive font size
                             ],
                           ),
-                          const SizedBox(height: 24),
+                          SizedBox(
+                              height: isSmallScreen
+                                  ? 16
+                                  : 24), // Responsive spacing
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -370,19 +408,22 @@ class _ModernDashboardState extends State<ModernDashboard> {
                                   widget.activities.isNotEmpty
                                       ? widget.activities[0]['desc'] ?? ''
                                       : '',
-                                  Colors.black87),
+                                  Colors.black87,
+                                  isSmallScreen: isSmallScreen),
                               _overviewStat(
                                   'Teachers',
                                   widget.activities.length > 1
                                       ? widget.activities[1]['desc'] ?? ''
                                       : '',
-                                  Colors.black87),
+                                  Colors.black87,
+                                  isSmallScreen: isSmallScreen),
                               _overviewStat(
                                   'Classes',
                                   widget.activities.length > 2
                                       ? widget.activities[2]['desc'] ?? ''
                                       : '',
-                                  Colors.black87),
+                                  Colors.black87,
+                                  isSmallScreen: isSmallScreen),
                             ],
                           ),
                         ],
@@ -398,9 +439,9 @@ class _ModernDashboardState extends State<ModernDashboard> {
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
             const SizedBox(height: 12),
             ReorderableWrap(
-              spacing: 16,
-              runSpacing: 16,
-              maxMainAxisCount: 2,
+              spacing: isSmallScreen ? 12 : 16, // Responsive spacing
+              runSpacing: isSmallScreen ? 12 : 16, // Responsive spacing
+              maxMainAxisCount: getGridColumns(), // Use responsive column count
               needsLongPressDraggable: true,
               onReorder: (oldIndex, newIndex) {
                 setState(() {
@@ -415,6 +456,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
                   description: card['description'],
                   onTap: card['onTap'],
                   key: ValueKey(card['title']),
+                  isSmallScreen: isSmallScreen, // Pass screen size info
                 );
               }).toList(),
             ),
@@ -444,14 +486,21 @@ class _ModernDashboardState extends State<ModernDashboard> {
     required String description,
     required VoidCallback onTap,
     Key? key,
+    bool isSmallScreen = false, // Add screen size parameter
   }) {
     return GestureDetector(
       key: key,
       onTap: onTap,
       child: Container(
-        constraints:
-            const BoxConstraints(minWidth: 160, maxWidth: 300, minHeight: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        constraints: BoxConstraints(
+          minWidth: isSmallScreen ? 140 : 160, // Responsive min width
+          maxWidth: isSmallScreen ? 280 : 300, // Responsive max width
+          minHeight: isSmallScreen ? 120 : 140, // Responsive min height
+        ),
+        padding: EdgeInsets.symmetric(
+          horizontal: isSmallScreen ? 16 : 20, // Responsive padding
+          vertical: isSmallScreen ? 20 : 24, // Responsive padding
+        ),
         margin: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -467,14 +516,21 @@ class _ModernDashboardState extends State<ModernDashboard> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 48, color: Colors.blue),
-            const SizedBox(height: 16),
+            Icon(icon,
+                size: isSmallScreen ? 40 : 48, // Responsive icon size
+                color: Colors.blue),
+            SizedBox(height: isSmallScreen ? 12 : 16), // Responsive spacing
             Text(title,
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 8),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: isSmallScreen ? 16 : 18, // Responsive font size
+                )),
+            SizedBox(height: isSmallScreen ? 6 : 8), // Responsive spacing
             Text(description,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 11 : 12, // Responsive font size
+                  color: Colors.grey,
+                ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis),
@@ -484,18 +540,23 @@ class _ModernDashboardState extends State<ModernDashboard> {
     );
   }
 
-  Widget _overviewStat(String label, String value, Color textColor) {
+  Widget _overviewStat(String label, String value, Color textColor,
+      {bool isSmallScreen = false}) {
     final displayValue = value.replaceAll('Total: ', '');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(label,
             style: TextStyle(
-                color: textColor, fontWeight: FontWeight.w600, fontSize: 18)),
-        const SizedBox(height: 6),
+                color: textColor,
+                fontWeight: FontWeight.w600,
+                fontSize: isSmallScreen ? 14 : 18)), // Responsive font size
+        SizedBox(height: isSmallScreen ? 4 : 6), // Responsive spacing
         Text(displayValue,
             style: TextStyle(
-                color: textColor, fontWeight: FontWeight.bold, fontSize: 32)),
+                color: textColor,
+                fontWeight: FontWeight.bold,
+                fontSize: isSmallScreen ? 24 : 32)), // Responsive font size
       ],
     );
   }

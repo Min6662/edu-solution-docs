@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'dart:ui';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -18,18 +17,12 @@ import 'font_test.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set up error handling for uncaught exceptions
+  // Set up error handling for uncaught exceptions (Android-safe)
   FlutterError.onError = (FlutterErrorDetails details) {
     print('Flutter Error: ${details.exception}');
-    print('Stack Trace: ${details.stack}');
-    // In production, you might want to send this to a crash reporting service
-  };
-
-  // Handle errors that occur outside of Flutter's error handling
-  PlatformDispatcher.instance.onError = (error, stack) {
-    print('Platform Error: $error');
-    print('Stack Trace: $stack');
-    return true;
+    if (kDebugMode) {
+      print('Stack Trace: ${details.stack}');
+    }
   };
 
   // Different initialization for web vs mobile
@@ -105,7 +98,13 @@ Future<void> _initializeForWeb() async {
 }
 
 Future<void> _initializeForMobile() async {
+  print('📱 Starting mobile initialization...');
+
+  // Initialize language service first (lightweight)
+  final languageService = LanguageService();
+
   try {
+    // Try Hive initialization
     await Hive.initFlutter();
     await Hive.openBox('studentImages');
     await CacheService.init();
@@ -114,8 +113,6 @@ Future<void> _initializeForMobile() async {
     print('⚠️ Hive initialization error (continuing anyway): $e');
   }
 
-  // Initialize language service
-  final languageService = LanguageService();
   try {
     await languageService.loadSavedLanguage();
     print('✅ Language service initialized');
@@ -123,7 +120,7 @@ Future<void> _initializeForMobile() async {
     print('⚠️ Language service error (using default): $e');
   }
 
-  // Initialize Parse
+  // Initialize Parse with extended timeout
   try {
     await Parse()
         .initialize(
@@ -140,12 +137,38 @@ Future<void> _initializeForMobile() async {
     // Continue anyway - app should still work offline
   }
 
-  runApp(
-    ChangeNotifierProvider(
-      create: (context) => languageService,
-      child: const MyApp(),
-    ),
-  );
+  // Always run the app, even if some initialization fails
+  try {
+    runApp(
+      ChangeNotifierProvider(
+        create: (context) => languageService,
+        child: const MyApp(),
+      ),
+    );
+    print('✅ App started successfully');
+  } catch (e) {
+    print('❌ Critical error starting app: $e');
+    // Last resort - try to run with minimal setup
+    runApp(
+      MaterialApp(
+        title: 'Edu Solution',
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, size: 64, color: Colors.red),
+                SizedBox(height: 16),
+                Text('App initialization failed'),
+                SizedBox(height: 8),
+                Text('Please restart the app'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -324,14 +347,16 @@ class _RoleBasedHomeState extends State<RoleBasedHome> {
     }
 
     // If no role or null role, show login page
-    if (userRole == null || userRole!.isEmpty) {
+    if ((userRole ?? '').isEmpty) {
       print('🚪 No user role, showing login page');
       return const LoginPage();
     }
 
-    print('🎯 Routing user with role: $userRole');
+    // Normalize the role safely (avoid null-check operator)
+    final role = (userRole ?? '').toLowerCase();
+    print('🎯 Routing user with role: $role');
     // Route users based on their roles
-    switch (userRole!.toLowerCase()) {
+    switch (role) {
       case 'owner':
       case 'admin':
         print('👑 Routing to AdminDashboard');

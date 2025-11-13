@@ -28,8 +28,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   final statusColors = {
     'present': Colors.green,
     'absent': Colors.red,
-    'late': Colors.orange,
-    'excuse': Colors.blue,
   };
 
   @override
@@ -133,16 +131,40 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     }
     final classPointer = ParseObject('Class')..objectId = classId;
     final enrolQuery = QueryBuilder<ParseObject>(ParseObject('Enrolment'))
-      ..whereEqualTo('class', classPointer);
+      ..whereEqualTo('class', classPointer)
+      ..includeObject(['student']);
     final enrolResponse = await enrolQuery.query();
+
     if (enrolResponse.success && enrolResponse.results != null) {
+      // Use a Set to track seen student IDs to avoid duplicates
+      final seenStudentIds = <String>{};
       final studentList = enrolResponse.results!
-          .map((e) => {
-                'id': e.get<ParseObject>('student')?.objectId ?? '',
-                'name': e.get<String>('studentName') ?? '',
-                'status': 'present',
-              })
-          .toList();
+          .where((e) =>
+              e.get<ParseObject>('student') !=
+              null) // Only include records with valid student objects
+          .map((e) {
+        final studentObj = e.get<ParseObject>('student')!;
+        final studentId = studentObj.objectId!;
+        final studentName = studentObj.get<String>('name') ?? 'No Name';
+
+        print('Student name: $studentName (ID: $studentId)');
+        return {
+          'id': studentId,
+          'name': studentName,
+          'status': 'present',
+        };
+      }).where((student) {
+        // Filter out duplicates by checking if we've seen this student ID before
+        final studentId = student['id'] as String;
+        if (seenStudentIds.contains(studentId)) {
+          print(
+              'Duplicate student filtered out: ${student['name']} (ID: $studentId)');
+          return false;
+        } else {
+          seenStudentIds.add(studentId);
+          return true;
+        }
+      }).toList();
       setState(() {
         students = studentList;
         loadingStudents = false;
@@ -588,10 +610,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           children: [
             // Header Controls Card
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(MediaQuery.of(context).size.width *
+                  0.04), // Responsive padding
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(MediaQuery.of(context).size.width *
+                      0.04), // Responsive padding
                   child: Column(
                     children: [
                       // Class Dropdown
@@ -735,18 +759,26 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             // Legend
             if (selectedClassId != null && students.isNotEmpty)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: EdgeInsets.symmetric(
+                    horizontal: MediaQuery.of(context).size.width *
+                        0.04), // Responsive padding
                 child: Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: EdgeInsets.all(MediaQuery.of(context).size.width *
+                        0.03), // Responsive padding
                     child: Row(
+                      // Use Row for horizontal alignment
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
+                        // Present Legend
                         Row(
+                          mainAxisSize: MainAxisSize.min, // Take minimum space
                           children: [
                             Container(
-                              width: 20,
-                              height: 20,
+                              width: MediaQuery.of(context).size.width *
+                                  0.06, // Responsive icon size
+                              height: MediaQuery.of(context).size.width *
+                                  0.06, // Responsive icon size
                               decoration: BoxDecoration(
                                 color: Colors.green,
                                 borderRadius: BorderRadius.circular(4),
@@ -766,11 +798,15 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                             Text(localizations.present),
                           ],
                         ),
+                        // Absent Legend
                         Row(
+                          mainAxisSize: MainAxisSize.min, // Take minimum space
                           children: [
                             Container(
-                              width: 20,
-                              height: 20,
+                              width: MediaQuery.of(context).size.width *
+                                  0.06, // Responsive icon size
+                              height: MediaQuery.of(context).size.width *
+                                  0.06, // Responsive icon size
                               decoration: BoxDecoration(
                                 color: Colors.red,
                                 borderRadius: BorderRadius.circular(4),
@@ -788,54 +824,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(localizations.absent),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            Container(
-                              width: 20,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: Colors.orange,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  localizations.lateShort,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(localizations.late),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            Container(
-                              width: 20,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: Colors.blue,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  localizations.excuseShort,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(localizations.excuse),
                           ],
                         ),
                       ],
@@ -889,12 +877,29 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                           color: Colors.grey.shade400,
                                           width: 1,
                                         ),
-                                        columnWidths: const {
-                                          0: FixedColumnWidth(50),
-                                          1: FlexColumnWidth(3),
-                                          2: FixedColumnWidth(50),
-                                          3: FixedColumnWidth(50),
-                                          4: FixedColumnWidth(100),
+                                        columnWidths: {
+                                          0: FixedColumnWidth(
+                                              MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.12), // 12% for number
+                                          1: FlexColumnWidth(
+                                              3), // Flexible for name
+                                          2: FixedColumnWidth(
+                                              MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.12), // 12% for P button
+                                          3: FixedColumnWidth(
+                                              MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.12), // 12% for A button
+                                          4: FixedColumnWidth(
+                                              MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.20), // 20% for total absent
                                         },
                                         children: [
                                           TableRow(
@@ -979,12 +984,29 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                             color: Colors.grey.shade300,
                                             width: 1,
                                           ),
-                                          columnWidths: const {
-                                            0: FixedColumnWidth(50),
-                                            1: FlexColumnWidth(3),
-                                            2: FixedColumnWidth(50),
-                                            3: FixedColumnWidth(50),
-                                            4: FixedColumnWidth(100),
+                                          columnWidths: {
+                                            0: FixedColumnWidth(
+                                                MediaQuery.of(context)
+                                                        .size
+                                                        .width *
+                                                    0.12), // 12% for number
+                                            1: FlexColumnWidth(
+                                                3), // Flexible for name
+                                            2: FixedColumnWidth(
+                                                MediaQuery.of(context)
+                                                        .size
+                                                        .width *
+                                                    0.12), // 12% for P button
+                                            3: FixedColumnWidth(
+                                                MediaQuery.of(context)
+                                                        .size
+                                                        .width *
+                                                    0.12), // 12% for A button
+                                            4: FixedColumnWidth(MediaQuery.of(
+                                                        context)
+                                                    .size
+                                                    .width *
+                                                0.20), // 20% for total absent
                                           },
                                           children: students
                                               .asMap()
@@ -1020,7 +1042,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                                                   padding:
                                                       const EdgeInsets.all(8),
                                                   child: Text(
-                                                    student['name'],
+                                                    student['name'] ??
+                                                        'No Name',
                                                     style: const TextStyle(
                                                       fontSize: 12,
                                                       fontWeight:
@@ -1203,12 +1226,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         break;
       case 'absent':
         displayLabel = localizations.absentShort;
-        break;
-      case 'late':
-        displayLabel = localizations.lateShort;
-        break;
-      case 'excuse':
-        displayLabel = localizations.excuseShort;
         break;
     }
 

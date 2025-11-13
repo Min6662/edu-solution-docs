@@ -1,0 +1,40 @@
+{
+  "" : {
+    "const-values" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master.swiftconstvalues",
+    "dependencies" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master.d",
+    "diagnostics" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master.dia",
+    "emit-module-dependencies" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master-emit-module.dia",
+    "swift-dependencies" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/mobile_scanner-master.swiftdeps"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/BarcodeHandler.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/BarcodeHandler.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/BarcodeHandler.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/BarcodeHandler.o"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/DetectionSpeed.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/DetectionSpeed.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/DetectionSpeed.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/DetectionSpeed.o"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/MobileScanner.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScanner.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScanner.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScanner.o"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/MobileScannerError.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerError.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerError.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerError.o"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/MobileScannerPlugin.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerPlugin.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerPlugin.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerPlugin.o"
+  },
+  "/Users/min/.pub-cache/hosted/pub.dev/mobile_scanner-5.2.3/ios/Classes/MobileScannerUtilities.swift" : {
+    "index-unit-output-path" : "/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerUtilities.o",
+    "llvm-bc" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerUtilities.bc",
+    "object" : "/Users/min/Desktop/Edu Solution/ios/build/Build/Intermediates.noindex/Pods.build/Release-iphoneos/mobile_scanner.build/Objects-normal/arm64/MobileScannerUtilities.o"
+  }
+}
