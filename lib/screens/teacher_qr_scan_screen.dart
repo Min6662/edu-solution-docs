@@ -4,7 +4,6 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:parse_server_sdk_flutter/parse_server_sdk_flutter.dart';
 import 'dart:io';
-import '../services/attendance_service.dart';
 
 class TeacherQRScanScreen extends StatefulWidget {
   const TeacherQRScanScreen({super.key});
@@ -124,7 +123,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
   Future<bool> _validateClassSchedule(String classCode) async {
     try {
-      // Get current teacher ID - with proper error handling
+      // Get current teacher ID
       ParseUser? currentUser;
       try {
         currentUser = await ParseUser.currentUser();
@@ -161,19 +160,27 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
         return false;
       }
 
-      // Use the AttendanceService to validate eligibility
-      print('Validating attendance eligibility for teacher: $teacherId, class: $classCode');
-      final scheduleEntry =
-          await AttendanceService.validateAttendanceEligibility(
-        teacherId,
-        classCode,
-      );
+      // Get current day of week
+      final now = DateTime.now();
+      final days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      final currentDay = days[now.weekday % 7]; // weekday: 1=Monday, 7=Sunday
+      final currentHour = now.hour;
+      final currentMinute = now.minute;
 
-      if (scheduleEntry == null) {
+      print('Current Day: $currentDay, Time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
+
+      // Query the Class table to get the classId from class code
+      final classQuery = QueryBuilder<ParseObject>(ParseObject('Class'))
+        ..whereEqualTo('code', classCode);
+
+      final classResponse = await classQuery.query();
+      
+      if (!classResponse.success || classResponse.results == null || classResponse.results!.isEmpty) {
+        print('❌ Class not found: $classCode');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('❌ No class scheduled at this time'),
+              content: Text('❌ Class not found in system'),
               backgroundColor: Colors.red,
               duration: Duration(seconds: 3),
             ),
@@ -182,46 +189,93 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
         return false;
       }
 
-      // Valid class found - record attendance
-      print('Valid class found! Recording attendance...');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                '✅ Class found! ${scheduleEntry.startTime} - ${scheduleEntry.endTime}'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      final classObj = classResponse.results!.first as ParseObject;
+      final className = classObj.get<String>('name') ?? classCode;
+      final classId = classObj.objectId;
+      print('✅ Class found: $className (ID: $classId)');
 
-      // Record the attendance
-      final result = await AttendanceService.recordAttendance(
-        teacherId: teacherId,
-        classCode: classCode,
-        scheduleEntry: scheduleEntry,
-      );
+      // Query the Schedule table for this teacher and class on this day
+      final teacherPointer = ParseObject('Teacher')..objectId = teacherId;
+      final classPointer = ParseObject('Class')..objectId = classId;
 
-      print('Attendance record result: $result');
+      final scheduleQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+        ..whereEqualTo('teacher', teacherPointer)
+        ..whereEqualTo('class', classPointer)
+        ..whereEqualTo('day', currentDay);
 
-      if (result['success'] == true) {
-        if (mounted) {
-          _showAttendanceSuccessDialog(result);
-        }
-        return true;
-      } else {
+      final scheduleResponse = await scheduleQuery.query();
+
+      print('Schedule query results: ${scheduleResponse.results?.length ?? 0} entries');
+
+      if (!scheduleResponse.success || scheduleResponse.results == null || scheduleResponse.results!.isEmpty) {
+        print('❌ No schedule found for teacher $teacherId, class $classId on $currentDay');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content:
-                  Text(result['message'] ?? 'Failed to record attendance'),
+            const SnackBar(
+              content: Text('❌ Teacher has no class scheduled for this class on this day'),
               backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
+              duration: Duration(seconds: 3),
             ),
           );
         }
         return false;
       }
+
+      // Check if current time matches the scheduled time slot
+      for (final schedule in scheduleResponse.results!) {
+        final timeSlot = schedule.get<String>('timeSlot') ?? '';
+        print('Checking time slot: $timeSlot');
+
+        if (timeSlot.isNotEmpty) {
+          final timeParts = timeSlot.split(':');
+          final scheduledHour = int.tryParse(timeParts[0]) ?? 0;
+          final scheduledMinute = int.tryParse(timeParts[1]) ?? 0;
+
+          // Check if current time is within 1 hour of the scheduled time
+          // (allowing 5 minutes before to 55 minutes after the start time)
+          final scheduleTimeInMinutes = scheduledHour * 60 + scheduledMinute;
+          final currentTimeInMinutes = currentHour * 60 + currentMinute;
+          final timeDifference = currentTimeInMinutes - scheduleTimeInMinutes;
+
+          print('Scheduled time: $scheduledHour:${scheduledMinute.toString().padLeft(2, '0')}');
+          print('Current time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
+          print('Time difference: $timeDifference minutes');
+
+          // Accept if time is between 5 minutes before class starts and 55 minutes after
+          if (timeDifference >= -5 && timeDifference <= 55) {
+            final subject = schedule.get<String>('subject') ?? 'Unknown';
+            print('✅ Valid class time for $subject!');
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      '✅ Class found: $className - $subject at $timeSlot'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+
+            return true;
+          }
+        }
+      }
+
+      // If we get here, time doesn't match
+      print('❌ Current time does not match any scheduled class time');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '❌ Teacher has no class at this time (Current: $currentHour:${currentMinute.toString().padLeft(2, '0')})'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+      return false;
     } catch (e) {
       print('Exception in _validateClassSchedule: $e');
       if (mounted) {
@@ -235,81 +289,6 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       }
       return false;
     }
-  }
-
-  void _showAttendanceSuccessDialog(Map<String, dynamic> result) {
-    final status = result['status'] ?? 'On Time';
-    final subjectName = result['subjectName'] ?? '';
-    final className = result['className'] ?? '';
-    final period = result['period'] ?? '';
-    final minutesSinceStart = result['minutesSinceStart'] ?? 0;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                status == 'Late' ? Icons.schedule : Icons.check_circle,
-                color: status == 'Late' ? Colors.orange : Colors.green,
-                size: 28,
-              ),
-              const SizedBox(width: 8),
-              Text(AppLocalizations.of(context)!.attendanceRecorded),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildInfoRow(AppLocalizations.of(context)!.subject, subjectName),
-              _buildInfoRow(AppLocalizations.of(context)!.className, className),
-              _buildInfoRow(AppLocalizations.of(context)!.period, period),
-              _buildInfoRow(AppLocalizations.of(context)!.status, status),
-              _buildInfoRow(AppLocalizations.of(context)!.time,
-                  _formatCurrentTime()),
-              if (minutesSinceStart > 0)
-                _buildInfoRow(
-                    AppLocalizations.of(context)!.minutesSinceStart,
-                    '$minutesSinceStart ${AppLocalizations.of(context)!.min}'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(AppLocalizations.of(context)!.ok),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatCurrentTime() {
-    final now = DateTime.now();
-    return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
   }
 
   @override
