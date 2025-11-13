@@ -167,16 +167,24 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       final currentHour = now.hour;
       final currentMinute = now.minute;
 
-      print('Current Day: $currentDay, Time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
+      print(
+          'Current Day: $currentDay, Time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
 
-      // Query the Class table to get the classId from class code
+      // The classCode is actually the classId (from QR code pointer)
+      // So we query directly using it as the class ID
+      final classId = classCode;
+      print('Class ID from QR: $classId');
+
+      // Query the Class table to verify the class exists
       final classQuery = QueryBuilder<ParseObject>(ParseObject('Class'))
-        ..whereEqualTo('code', classCode);
+        ..whereEqualTo('objectId', classId);
 
       final classResponse = await classQuery.query();
-      
-      if (!classResponse.success || classResponse.results == null || classResponse.results!.isEmpty) {
-        print('❌ Class not found: $classCode');
+
+      if (!classResponse.success ||
+          classResponse.results == null ||
+          classResponse.results!.isEmpty) {
+        print('❌ Class not found with ID: $classId');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -190,8 +198,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       }
 
       final classObj = classResponse.results!.first as ParseObject;
-      final className = classObj.get<String>('name') ?? classCode;
-      final classId = classObj.objectId;
+      final className = classObj.get<String>('name') ?? classId;
       print('✅ Class found: $className (ID: $classId)');
 
       // Query the Schedule table for this teacher and class on this day
@@ -205,14 +212,19 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
       final scheduleResponse = await scheduleQuery.query();
 
-      print('Schedule query results: ${scheduleResponse.results?.length ?? 0} entries');
+      print(
+          'Schedule query results: ${scheduleResponse.results?.length ?? 0} entries');
 
-      if (!scheduleResponse.success || scheduleResponse.results == null || scheduleResponse.results!.isEmpty) {
-        print('❌ No schedule found for teacher $teacherId, class $classId on $currentDay');
+      if (!scheduleResponse.success ||
+          scheduleResponse.results == null ||
+          scheduleResponse.results!.isEmpty) {
+        print(
+            '❌ No schedule found for teacher $teacherId, class $classId on $currentDay');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('❌ Teacher has no class scheduled for this class on this day'),
+              content: Text(
+                  '❌ Teacher has no class scheduled for this class on this day'),
               backgroundColor: Colors.red,
               duration: Duration(seconds: 3),
             ),
@@ -237,8 +249,10 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
           final currentTimeInMinutes = currentHour * 60 + currentMinute;
           final timeDifference = currentTimeInMinutes - scheduleTimeInMinutes;
 
-          print('Scheduled time: $scheduledHour:${scheduledMinute.toString().padLeft(2, '0')}');
-          print('Current time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
+          print(
+              'Scheduled time: $scheduledHour:${scheduledMinute.toString().padLeft(2, '0')}');
+          print(
+              'Current time: $currentHour:${currentMinute.toString().padLeft(2, '0')}');
           print('Time difference: $timeDifference minutes');
 
           // Accept if time is between 5 minutes before class starts and 55 minutes after
@@ -249,8 +263,8 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(
-                      '✅ Class found: $className - $subject at $timeSlot'),
+                  content:
+                      Text('✅ Class found: $className - $subject at $timeSlot'),
                   backgroundColor: Colors.green,
                   duration: const Duration(seconds: 2),
                 ),
