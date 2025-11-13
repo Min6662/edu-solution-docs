@@ -198,6 +198,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       print('✅ Using Class: $className (ID: $classId)');
 
       // Query the Schedule table for this teacher and class on this day
+      // First, let's try a simpler approach - query all schedules and filter
       final teacherPointer = ParseObject('Teacher')..objectId = teacherId;
       final classPointer = ParseObject('Class')..objectId = classId;
 
@@ -206,18 +207,59 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       print('Class Pointer ID: $classId');
       print('Current Day: $currentDay');
 
-      final scheduleQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+      // Try approach 1: Direct pointer matching with included objects
+      var scheduleQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
         ..whereEqualTo('teacher', teacherPointer)
         ..whereEqualTo('class', classPointer)
-        ..whereEqualTo('day', currentDay);
+        ..includeObject(['teacher', 'class']);
 
-      final scheduleResponse = await scheduleQuery.query();
+      var scheduleResponse = await scheduleQuery.query();
 
-      print('Schedule query success: ${scheduleResponse.success}');
-      print('Schedule query results count: ${scheduleResponse.results?.length ?? 0}');
+      print('Approach 1 - Direct pointer query:');
+      print('  Success: ${scheduleResponse.success}');
+      print('  Results: ${scheduleResponse.results?.length ?? 0}');
+
+      // If that doesn't work, try approach 2: Query by day only and filter manually
+      if ((scheduleResponse.results?.isEmpty ?? true)) {
+        print('Approach 1 failed, trying Approach 2: Query all for day and filter manually');
+
+        scheduleQuery = QueryBuilder<ParseObject>(ParseObject('Schedule'))
+          ..whereEqualTo('day', currentDay)
+          ..includeObject(['teacher', 'class']);
+
+        scheduleResponse = await scheduleQuery.query();
+
+        print('Approach 2 - Query all for day:');
+        print('  Results returned: ${scheduleResponse.results?.length ?? 0}');
+
+        // Filter manually for matching teacher and class
+        if (scheduleResponse.results != null && scheduleResponse.results!.isNotEmpty) {
+          List<ParseObject> filteredResults = [];
+
+          for (final schedule in scheduleResponse.results!) {
+            final schedTeacherId =
+                schedule.get<ParseObject>('teacher')?.objectId ?? '';
+            final schedClassId =
+                schedule.get<ParseObject>('class')?.objectId ?? '';
+
+            print('  Checking schedule - Teacher: $schedTeacherId, Class: $schedClassId');
+
+            if (schedTeacherId == teacherId && schedClassId == classId) {
+              filteredResults.add(schedule);
+              print('    ✅ MATCH!');
+            }
+          }
+
+          // Replace results with filtered results
+          scheduleResponse.results = filteredResults;
+          print('Filtered results: ${filteredResults.length}');
+        }
+      }
+
+      print('Final Schedule query results count: ${scheduleResponse.results?.length ?? 0}');
       
       // Debug: Print all results
-      if (scheduleResponse.results != null) {
+      if (scheduleResponse.results != null && scheduleResponse.results!.isNotEmpty) {
         for (int i = 0; i < scheduleResponse.results!.length; i++) {
           final sched = scheduleResponse.results![i];
           print('Schedule #$i:');
@@ -229,9 +271,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
         }
       }
 
-      if (!scheduleResponse.success ||
-          scheduleResponse.results == null ||
-          scheduleResponse.results!.isEmpty) {
+      if (scheduleResponse.results == null || scheduleResponse.results!.isEmpty) {
         print(
             '❌ No schedule found for teacher $teacherId, class $classId on $currentDay');
         if (mounted) {
