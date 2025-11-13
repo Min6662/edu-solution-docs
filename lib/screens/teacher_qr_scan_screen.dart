@@ -87,7 +87,7 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
             // Validate class schedule before returning
             final classId = barcode.rawValue!;
             final isValidClass = await _validateClassSchedule(classId);
-            
+
             if (isValidClass && mounted) {
               Navigator.pop(context, classId);
               return;
@@ -153,7 +153,9 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
 
       final response = await query.query();
 
-      if (!response.success || response.results == null || response.results!.isEmpty) {
+      if (!response.success ||
+          response.results == null ||
+          response.results!.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -187,7 +189,8 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
             final startTimeInMinutes = startHour * 60 + startMinuteVal;
             final endTimeInMinutes = endHour * 60 + endMinuteVal;
 
-            if (currentTimeInMinutes >= startTimeInMinutes && currentTimeInMinutes <= endTimeInMinutes) {
+            if (currentTimeInMinutes >= startTimeInMinutes &&
+                currentTimeInMinutes <= endTimeInMinutes) {
               // Valid class time
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -208,7 +211,8 @@ class _TeacherQRScanScreenState extends State<TeacherQRScanScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ You do not have class at this time (Current: ${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')})'),
+            content: Text(
+                '❌ You do not have class at this time (Current: ${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')})'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
